@@ -49,6 +49,12 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    environment:
+      # Coolify magic variable: binds the configured domain to this service's
+      # internal port 80 so the reverse proxy (Traefik) generates a working
+      # router. Without the explicit port, Coolify cannot auto-detect it from
+      # `expose` and the proxy returns "404 page not found".
+      - SERVICE_FQDN_FRONTEND_80
     expose:
       - "80"
     healthcheck:
