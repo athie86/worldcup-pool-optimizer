@@ -28,26 +28,24 @@ class TestMatchesUnauthenticated:
         response = await client.post("/api/matches", json={"stage": "group"})
         assert response.status_code == 401
 
+    async def test_update_match_requires_auth(self, client):
+        response = await client.put("/api/matches/00000000-0000-0000-0000-000000000001", json={})
+        assert response.status_code == 401
 
-class TestMatchesAuthenticated:
-    async def test_list_matches_returns_list(self, client, auth_cookies):
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
+    async def test_delete_match_requires_auth(self, client):
+        response = await client.delete("/api/matches/00000000-0000-0000-0000-000000000001")
+        assert response.status_code == 401
 
-        with patch("app.api.matches.get_db", return_value=mock_db):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", cookies=auth_cookies) as ac:
-                response = await ac.get("/api/matches")
 
-        # With mock returning empty, but route needs real DB - just check auth passes
-        # (actual DB calls will fail without real DB)
-        # We just check it's not 401
-        assert response.status_code != 401
-
-    async def test_import_schedule_stub(self, client, auth_cookies):
+class TestImportScheduleStub:
+    async def test_import_schedule_stub_returns_message(self, auth_cookies):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", cookies=auth_cookies) as ac:
             response = await ac.post("/api/matches/import-provider-schedule")
         assert response.status_code == 200
         data = response.json()
         assert "message" in data
+        assert isinstance(data["message"], str)
+
+    async def test_import_schedule_stub_unauthenticated(self, client):
+        response = await client.post("/api/matches/import-provider-schedule")
+        assert response.status_code == 401

@@ -3,7 +3,7 @@ import os
 import csv
 import uuid
 from io import StringIO, BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Any
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -305,7 +305,7 @@ def build_excel(
     ws_meta.append(["started_at", str(model_run.started_at or "")])
     ws_meta.append(["completed_at", str(model_run.completed_at or "")])
     ws_meta.append(["matches_processed", len(fits)])
-    ws_meta.append(["generated_at", datetime.utcnow().isoformat()])
+    ws_meta.append(["generated_at", datetime.now(timezone.utc).isoformat()])
 
     _auto_width(ws_meta)
 

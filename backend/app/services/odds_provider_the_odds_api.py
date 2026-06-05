@@ -67,7 +67,7 @@ class TheOddsApiProvider(OddsProvider):
         url = f"{BASE_URL}/sports/{sport_key}/events"
         params = {"apiKey": self.api_key, "dateFormat": "iso"}
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = client.get(url, params=params)
+            resp = await client.get(url, params=params)
             resp.raise_for_status()
             data = resp.json()
 
