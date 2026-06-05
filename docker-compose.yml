@@ -33,10 +33,10 @@ services:
       EXPORT_DIR: /app/exports
     volumes:
       - export_files:/app/exports
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,8 +49,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    ports:
-      - "3000:80"
+    expose:
+      - "80"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:80/"]
       interval: 10s
