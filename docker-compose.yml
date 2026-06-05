@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: worldcup
+      POSTGRES_PASSWORD: worldcup
+      POSTGRES_DB: worldcup
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U worldcup"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://worldcup:worldcup@postgres:5432/worldcup
+      ODDS_API_KEY: ${ODDS_API_KEY:-replace_me}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-replace_me}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-in-production}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      TIMEZONE: ${TIMEZONE:-America/Mexico_City}
+      EXPORT_DIR: /app/exports
+    volumes:
+      - export_files:/app/exports
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  export_files:

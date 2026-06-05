@@ -1,0 +1,204 @@
+# World Cup Pool Optimizer
+
+A private web app that recommends score predictions for a 2026 FIFA World Cup pool. Fetches bookmaker odds daily, fits a Poisson model per match using 1X2 and Over/Under markets, and outputs the predicted score(s) that maximize expected pool points under a configurable scoring system.
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.12, FastAPI, SQLAlchemy 2.x, Alembic, PostgreSQL 16 |
+| Math | NumPy, SciPy (L-BFGS-B optimizer), Pandas |
+| Export | openpyxl (Excel), csv (CSV) |
+| Frontend | React 18, TypeScript, Vite, TanStack Query, TanStack Table, Recharts, Tailwind CSS |
+| Deployment | Docker Compose (local + Coolify/VPS) |
+
+## Quick Start (Local)
+
+### 1. Prerequisites
+
+- Docker and Docker Compose v2
+- A free API key from [The Odds API](https://the-odds-api.com)
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+ODDS_API_KEY=your_odds_api_key_here
+ADMIN_PASSWORD_HASH=$(python3 -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('your-chosen-password'))")
+SESSION_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+```
+
+> **Tip:** If you don't have Python locally, you can generate the hash after the containers start:
+> ```bash
+> docker compose exec backend python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('your-password'))"
+> ```
+> Then update `.env` and restart the backend.
+
+### 3. Build and start
+
+```bash
+docker compose up --build
+```
+
+### 4. Run migrations and seed data
+
+```bash
+docker compose exec backend alembic upgrade head
+docker compose exec backend python -m app.seed
+```
+
+### 5. Access the app
+
+- **Frontend:** http://localhost:3000
+- **Backend API docs:** http://localhost:8000/docs
+- **Health check:** http://localhost:8000/health
+
+Log in with the password you set in step 2.
+
+## Development (without Docker)
+
+### Backend
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+
+# Set env vars (or create backend/.env)
+export DATABASE_URL=postgresql+psycopg://worldcup:worldcup@localhost:5432/worldcup
+export ADMIN_PASSWORD_HASH=$(python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('admin123'))")
+export SESSION_SECRET=dev-secret
+
+alembic upgrade head
+python -m app.seed
+uvicorn app.main:app --reload
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev    # Vite dev server at http://localhost:5173, proxies /api to :8000
+```
+
+### Run backend tests
+
+```bash
+cd backend
+pytest tests/ -v
+```
+
+## Project Structure
+
+```
+worldcup-pool-optimizer/
+├── backend/
+│   ├── app/
+│   │   ├── api/          # FastAPI route handlers
+│   │   ├── core/         # Config, security, logging
+│   │   ├── db/           # SQLAlchemy models + session
+│   │   ├── schemas/      # Pydantic v2 request/response schemas
+│   │   ├── services/     # Business logic
+│   │   │   ├── scoring.py              # Pool scoring engine
+│   │   │   ├── poisson_model.py        # Poisson fitting (L-BFGS-B)
+│   │   │   ├── optimizer.py            # Expected-points optimizer
+│   │   │   ├── odds_normalization.py   # Margin removal + consensus
+│   │   │   ├── odds_provider_base.py   # Abstract provider interface
+│   │   │   ├── odds_provider_the_odds_api.py
+│   │   │   ├── diagnostics.py          # Market vs model diagnostics
+│   │   │   ├── export_service.py       # CSV + Excel exports
+│   │   │   └── jobs.py                 # Daily refresh scheduler
+│   │   ├── main.py
+│   │   └── seed.py
+│   ├── alembic/          # DB migrations
+│   └── tests/
+├── frontend/
+│   └── src/
+│       ├── api/          # Typed API client functions
+│       ├── components/   # Reusable UI components
+│       ├── hooks/        # useAuth, useToast
+│       ├── pages/        # 8 app pages
+│       ├── styles/       # Design tokens + global CSS
+│       └── types/        # TypeScript interfaces
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
+
+## API Overview
+
+All routes require session authentication except `/health` and `/api/auth/login`.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/auth/login` | Login with admin password |
+| POST | `/api/auth/logout` | Clear session |
+| GET | `/api/auth/me` | Auth status |
+| GET | `/health` | Health + DB check |
+| GET | `/api/pool-configs` | List pool configurations |
+| PUT | `/api/pool-configs/{id}/scoring-rules` | Update scoring rules |
+| GET | `/api/matches` | List matches with filters |
+| POST | `/api/odds/refresh` | Trigger manual odds refresh |
+| GET | `/api/matches/{id}/odds` | Match odds + overrides |
+| PUT | `/api/matches/{id}/odds-overrides` | Set raw odds overrides |
+| POST | `/api/model-runs` | Run optimizer |
+| GET | `/api/model-runs/{id}/recommendations` | Get recommendations |
+| GET | `/api/matches/{id}/diagnostics` | Model vs market diagnostics |
+| POST | `/api/exports/csv` | Export CSV |
+| POST | `/api/exports/excel` | Export Excel workbook |
+| GET | `/api/exports/{id}/download` | Download export file |
+
+## Mathematical Model
+
+Each match fits two independent Poisson parameters `(λ_home, λ_away)` by minimizing weighted squared error between model-implied and market-implied probabilities:
+
+- **1X2 targets:** home win, draw, away win
+- **O/U targets:** over/under 1.5, 2.5, 3.5 (when available)
+- **Fitting grid:** 12+ goals per team (increased if tail mass > 0.001)
+- **Candidate predictions:** 0–5 goals per team (36 candidates)
+- **Expected points:** integrated over the full fitting grid
+
+## Scoring Rules (Configurable)
+
+| Code | Default Points | Description |
+|---|---:|---|
+| `exact_score` | 10 | Both goals match exactly |
+| `correct_winner_goal_difference` | 6 | Same winner + same goal difference |
+| `correct_winner_winner_goals` | 5 | Same winner + winning team's goals match |
+| `correct_winner_basic_a` | 3 | Same winner, different goal difference |
+| `correct_winner_basic_b` | 3 | Same winner, different winning-team goals |
+| `correct_draw` | 4 | Both predict draw, not exact score |
+| `wrong_result_team_goal` | 1 | Wrong result but one team's goals match |
+| `wrong_result` | 0 | Catch-all |
+
+Rules can be enabled/disabled and point values are editable in the UI.
+
+## Deployment on Coolify / VPS
+
+1. Push this repo to GitHub/GitLab.
+2. In Coolify, create a new **Docker Compose** deployment pointing to this repo.
+3. Set the environment variables from `.env.example` in Coolify's environment tab.
+4. Mount a persistent volume for `/app/exports`.
+5. Set health checks: backend `/health`, frontend `/`.
+6. Enable HTTPS via Coolify's built-in reverse proxy.
+7. After first deploy, run migrations and seed:
+   ```bash
+   # Via Coolify terminal or SSH into your VPS
+   docker compose exec backend alembic upgrade head
+   docker compose exec backend python -m app.seed
+   ```
+
+## Known Limitations
+
+- Independent Poisson model may understate draw probability vs correlated models.
+- Standard 1X2 odds reflect 90-minute outcomes; knockout scoring basis may differ.
+- Optimizes each match independently — does not account for other participants' likely picks.
+- Candidate scores capped at 0–5 per team.
+- Score tracking and leaderboard are future-phase features (not MVP).
