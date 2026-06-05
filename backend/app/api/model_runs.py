@@ -18,10 +18,9 @@ from ..schemas.model_runs import (
     DiagnosticsRow,
 )
 from ..services.scoring import ScoringRule as SvcScoringRule
-from ..services.poisson_model import fit_poisson, MarketProbabilities
+from ..services.score_model import fit_score_model, MarketProbabilities
 from ..services.optimizer import compute_expected_points
 from ..services.odds_normalization import compute_consensus, BookmakerMarket, RawOutcome
-from ..services.diagnostics import compute_diagnostics
 from ..core.logging import logger
 from .deps import get_current_user
 
@@ -161,7 +160,7 @@ async def create_model_run(
     for match in matches:
         try:
             market_probs = await _build_market_probs(db, match, body.odds_snapshot_id)
-            fit = fit_poisson(market_probs)
+            fit = fit_score_model(market_probs)
 
             # Store model fit
             model_fit = models.MatchModelFit(
@@ -293,30 +292,33 @@ async def get_match_diagnostics(
 
     diag = fit.diagnostics or {}
     rows = []
-    targets = diag.get("market_targets", {})
-    fitted_probs = diag.get("fitted_probabilities", {})
+    targets     = diag.get("market_targets", {})
+    cal_probs   = diag.get("fitted_probabilities", {})
+    prior_probs = diag.get("prior_probabilities", {})
 
     target_map = {
-        "home_win": "Home Win",
-        "draw": "Draw",
-        "away_win": "Away Win",
-        "over_1_5": "Over 1.5",
+        "home_win":  "Home Win",
+        "draw":      "Draw",
+        "away_win":  "Away Win",
+        "over_1_5":  "Over 1.5",
         "under_1_5": "Under 1.5",
-        "over_2_5": "Over 2.5",
+        "over_2_5":  "Over 2.5",
         "under_2_5": "Under 2.5",
-        "over_3_5": "Over 3.5",
+        "over_3_5":  "Over 3.5",
         "under_3_5": "Under 3.5",
     }
 
     for key, label in target_map.items():
         market_val = targets.get(key)
-        model_val = fitted_probs.get(key)
-        if market_val is not None and model_val is not None:
+        cal_val    = cal_probs.get(key)
+        prior_val  = prior_probs.get(key) if prior_probs else None
+        if market_val is not None and cal_val is not None:
             rows.append(DiagnosticsRow(
                 target=label,
                 market=market_val,
-                model=model_val,
-                error=model_val - market_val,
+                prior=prior_val,
+                model=cal_val,
+                error=cal_val - market_val,
             ))
 
     rmse = float(diag.get("rmse", 0))
@@ -327,14 +329,23 @@ async def get_match_diagnostics(
     else:
         status = "weak"
 
+    lh = float(fit.lambda_home or 0)
+    la = float(fit.lambda_away or 0)
+
     return DiagnosticsOut(
         match_id=match_id,
-        lambda_home=float(fit.lambda_home or 0),
-        lambda_away=float(fit.lambda_away or 0),
-        total_expected_goals=float((fit.lambda_home or 0) + (fit.lambda_away or 0)),
+        lambda_home=lh,
+        lambda_away=la,
+        rho=float(diag.get("rho", 0.0)),
+        total_expected_goals=lh + la,
         rmse=rmse,
+        prior_rmse=float(diag.get("prior_rmse", rmse)),
+        max_single_market_error=float(diag.get("max_single_market_error", 0.0)),
+        kl_divergence_from_prior=float(diag.get("kl_divergence_from_prior", 0.0)),
+        tail_mass_before_normalization=float(diag.get("tail_mass_before_normalization", 0.0)),
         fit_status=status,
         rows=rows,
         warnings=diag.get("warnings", []),
         score_matrix=fit.score_matrix or [],
+        prior_matrix=diag.get("prior_matrix"),
     )

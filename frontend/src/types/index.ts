@@ -138,21 +138,30 @@ export interface ModelRun {
   };
 }
 
+export interface DiagnosticsRow {
+  target: string;
+  market: number;
+  prior?: number;    // DC prior implied probability
+  model: number;     // entropy-calibrated implied probability
+  error: number;     // calibrated − market
+}
+
 export interface Diagnostics {
   match_id: string;
   lambda_home: number;
   lambda_away: number;
+  rho?: number;
   total_expected_goals: number;
-  rmse: number;
+  rmse: number;                          // calibrated RMSE
+  prior_rmse?: number;                   // DC prior RMSE
+  max_single_market_error?: number;
+  kl_divergence_from_prior?: number;
+  tail_mass_before_normalization?: number;
   fit_status: string;
-  rows: {
-    target: string;
-    market: number;
-    model: number;
-    error: number;
-  }[];
+  rows: DiagnosticsRow[];
   warnings: string[];
-  score_matrix: number[][];
+  score_matrix: number[][];              // calibrated 6×6
+  prior_matrix?: number[][];             // DC prior 6×6
   expected_points_matrix?: number[][];
 }
 

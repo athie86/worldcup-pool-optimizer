@@ -69,17 +69,24 @@ class ModelRunWithFits(ModelRunOut):
 class DiagnosticsRow(BaseModel):
     target: str
     market: float
-    model: float
-    error: float
+    prior: Optional[float] = None   # DC prior implied probability
+    model: float                     # entropy-calibrated implied probability
+    error: float                     # calibrated − market
 
 
 class DiagnosticsOut(BaseModel):
     match_id: uuid.UUID
     lambda_home: float
     lambda_away: float
+    rho: float = 0.0
     total_expected_goals: float
-    rmse: float
+    rmse: float                             # calibrated RMSE
+    prior_rmse: float = 0.0
+    max_single_market_error: float = 0.0
+    kl_divergence_from_prior: float = 0.0
+    tail_mass_before_normalization: float = 0.0
     fit_status: str
     rows: list[DiagnosticsRow]
     warnings: list[str]
-    score_matrix: list[list[float]]
+    score_matrix: list[list[float]]         # calibrated 6×6
+    prior_matrix: Optional[list[list[float]]] = None

@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 import numpy as np
 from .scoring import ScoringRule, score_points, applies
-from .poisson_model import FitResult, CANDIDATE_MAX
+from .score_model import CalibratedModelResult, CANDIDATE_MAX
+
+# Backward-compat alias so any code that still references FitResult compiles.
+FitResult = CalibratedModelResult
 
 
 @dataclass
@@ -17,7 +20,7 @@ class Recommendation:
 
 
 def compute_expected_points(
-    fit: FitResult,
+    fit: CalibratedModelResult,
     rules: list[ScoringRule],
     candidate_max: int = CANDIDATE_MAX,
 ) -> list[Recommendation]:
