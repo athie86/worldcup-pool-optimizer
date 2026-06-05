@@ -1,0 +1,340 @@
+from __future__ import annotations
+import uuid
+from datetime import datetime
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+from ..db import models
+from ..db.session import get_db
+from ..schemas.model_runs import (
+    ModelRunOut,
+    ModelRunCreate,
+    ModelRunWithFits,
+    ScoreRecommendationOut,
+    DiagnosticsOut,
+    DiagnosticsRow,
+)
+from ..services.scoring import ScoringRule as SvcScoringRule
+from ..services.poisson_model import fit_poisson, MarketProbabilities
+from ..services.optimizer import compute_expected_points
+from ..services.odds_normalization import compute_consensus, BookmakerMarket, RawOutcome
+from ..services.diagnostics import compute_diagnostics
+from ..core.logging import logger
+from .deps import get_current_user
+
+router = APIRouter()
+
+
+async def _build_market_probs(
+    db: AsyncSession,
+    match: models.Match,
+    odds_snapshot_id: Optional[uuid.UUID],
+) -> MarketProbabilities:
+    """Build MarketProbabilities from latest odds for a match."""
+    # Get odds events for this match
+    q = (
+        select(models.OddsEvent)
+        .options(
+            selectinload(models.OddsEvent.bookmaker_markets).selectinload(
+                models.BookmakerMarket.market_outcomes
+            )
+        )
+        .where(models.OddsEvent.match_id == match.id)
+    )
+    if odds_snapshot_id:
+        q = q.where(models.OddsEvent.odds_snapshot_id == odds_snapshot_id)
+    else:
+        # Use most recent snapshot
+        q = q.order_by(models.OddsEvent.created_at.desc())
+
+    result = await db.execute(q)
+    events = result.scalars().all()
+
+    # Build bookmaker markets list
+    bk_markets: list[BookmakerMarket] = []
+    for evt in events:
+        for bm in evt.bookmaker_markets:
+            outcomes = [
+                RawOutcome(
+                    outcome_type=mo.outcome_type,
+                    price_decimal=float(mo.price_decimal),
+                    line=float(bm.line) if bm.line else None,
+                )
+                for mo in bm.market_outcomes
+            ]
+            bk_markets.append(
+                BookmakerMarket(
+                    bookmaker_key=bm.bookmaker_key,
+                    market_key=bm.market_key,
+                    line=float(bm.line) if bm.line else None,
+                    outcomes=outcomes,
+                    last_update=bm.last_update,
+                )
+            )
+
+    # Get manual overrides
+    ov_result = await db.execute(
+        select(models.ManualOddsOverride).where(
+            models.ManualOddsOverride.match_id == match.id,
+            models.ManualOddsOverride.enabled == True,
+        )
+    )
+    overrides_db = ov_result.scalars().all()
+    overrides = [
+        RawOutcome(
+            outcome_type=ov.outcome_type,
+            price_decimal=float(ov.price_decimal),
+            line=float(ov.line) if ov.line else None,
+        )
+        for ov in overrides_db
+    ]
+
+    return compute_consensus(bk_markets, overrides if overrides else None)
+
+
+@router.post("/model-runs", response_model=ModelRunOut, status_code=201)
+async def create_model_run(
+    body: ModelRunCreate,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    # Load pool config with scoring rules
+    pc_result = await db.execute(
+        select(models.PoolConfig)
+        .options(selectinload(models.PoolConfig.scoring_rules))
+        .where(models.PoolConfig.id == body.pool_config_id)
+    )
+    pool_config = pc_result.scalar_one_or_none()
+    if not pool_config:
+        raise HTTPException(status_code=404, detail="Pool config not found")
+
+    # Build scoring rules
+    rules = [
+        SvcScoringRule(
+            code=r.code,
+            label=r.label,
+            points=float(r.points),
+            enabled=r.enabled,
+            display_specificity_rank=r.display_specificity_rank,
+        )
+        for r in pool_config.scoring_rules
+    ]
+
+    # Create model run
+    run = models.ModelRun(
+        pool_config_id=body.pool_config_id,
+        odds_snapshot_id=body.odds_snapshot_id,
+        run_type=body.run_type,
+        status="running",
+        parameters=body.parameters or {},
+        started_at=datetime.utcnow(),
+    )
+    db.add(run)
+    await db.flush()
+
+    # Get matches to optimize
+    match_q = (
+        select(models.Match)
+        .options(
+            selectinload(models.Match.home_team),
+            selectinload(models.Match.away_team),
+            selectinload(models.Match.manual_overrides),
+        )
+        .where(models.Match.is_complete_for_optimization == True)
+    )
+    match_result = await db.execute(match_q)
+    matches = match_result.scalars().all()
+
+    if not matches:
+        run.status = "completed"
+        run.completed_at = datetime.utcnow()
+        run.error_message = "No matches marked complete_for_optimization"
+        await db.commit()
+        return run
+
+    candidate_max = pool_config.candidate_max_goals
+
+    errors = []
+    for match in matches:
+        try:
+            market_probs = await _build_market_probs(db, match, body.odds_snapshot_id)
+            fit = fit_poisson(market_probs)
+
+            # Store model fit
+            model_fit = models.MatchModelFit(
+                model_run_id=run.id,
+                match_id=match.id,
+                lambda_home=fit.lambda_home,
+                lambda_away=fit.lambda_away,
+                fitted_home_win_prob=fit.fitted_home_win,
+                fitted_draw_prob=fit.fitted_draw,
+                fitted_away_win_prob=fit.fitted_away_win,
+                market_home_win_prob=market_probs.home_win,
+                market_draw_prob=market_probs.draw,
+                market_away_win_prob=market_probs.away_win,
+                fit_error=fit.loss,
+                fit_status=fit.fit_status,
+                diagnostics=fit.diagnostics,
+                score_matrix=fit.score_matrix.tolist(),
+            )
+            db.add(model_fit)
+            await db.flush()
+
+            # Compute recommendations
+            recs = compute_expected_points(fit, rules, candidate_max)
+            for rec in recs:
+                sr = models.ScoreRecommendation(
+                    match_model_fit_id=model_fit.id,
+                    predicted_home_goals=rec.predicted_home,
+                    predicted_away_goals=rec.predicted_away,
+                    rank=rec.rank,
+                    expected_points=rec.expected_points,
+                    variance_points=rec.variance,
+                    zero_point_probability=rec.zero_point_probability,
+                    score_probability=rec.score_probability,
+                    scoring_breakdown=rec.scoring_breakdown,
+                )
+                db.add(sr)
+
+        except Exception as exc:
+            logger.error("model_run: match failed", match_id=str(match.id), error=str(exc))
+            errors.append(str(exc))
+
+    run.status = "completed" if not errors else "partial"
+    run.completed_at = datetime.utcnow()
+    if errors:
+        run.error_message = "; ".join(errors[:3])
+
+    await db.commit()
+    await db.refresh(run)
+    return run
+
+
+@router.get("/model-runs", response_model=list[ModelRunOut])
+async def list_model_runs(
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(models.ModelRun)
+        .order_by(models.ModelRun.started_at.desc().nullslast())
+        .limit(100)
+    )
+    return result.scalars().all()
+
+
+@router.get("/model-runs/{run_id}", response_model=ModelRunWithFits)
+async def get_model_run(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(models.ModelRun)
+        .options(
+            selectinload(models.ModelRun.match_model_fits).selectinload(
+                models.MatchModelFit.score_recommendations
+            )
+        )
+        .where(models.ModelRun.id == run_id)
+    )
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Model run not found")
+    return run
+
+
+@router.get("/model-runs/{run_id}/recommendations", response_model=list[ScoreRecommendationOut])
+async def get_recommendations(
+    run_id: uuid.UUID,
+    top_n: int = 3,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    # Verify run exists
+    run_result = await db.execute(
+        select(models.ModelRun).where(models.ModelRun.id == run_id)
+    )
+    if not run_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Model run not found")
+
+    result = await db.execute(
+        select(models.ScoreRecommendation)
+        .join(models.MatchModelFit)
+        .where(models.MatchModelFit.model_run_id == run_id)
+        .where(models.ScoreRecommendation.rank <= top_n)
+        .order_by(models.MatchModelFit.id, models.ScoreRecommendation.rank)
+    )
+    return result.scalars().all()
+
+
+@router.get("/matches/{match_id}/diagnostics", response_model=DiagnosticsOut)
+async def get_match_diagnostics(
+    match_id: uuid.UUID,
+    run_id: Optional[uuid.UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    q = (
+        select(models.MatchModelFit)
+        .where(models.MatchModelFit.match_id == match_id)
+        .order_by(models.MatchModelFit.created_at.desc())
+    )
+    if run_id:
+        q = q.where(models.MatchModelFit.model_run_id == run_id)
+
+    result = await db.execute(q)
+    fit = result.scalar_one_or_none()
+    if not fit:
+        raise HTTPException(status_code=404, detail="No model fit found for this match")
+
+    diag = fit.diagnostics or {}
+    rows = []
+    targets = diag.get("market_targets", {})
+    fitted_probs = diag.get("fitted_probabilities", {})
+
+    target_map = {
+        "home_win": "Home Win",
+        "draw": "Draw",
+        "away_win": "Away Win",
+        "over_1_5": "Over 1.5",
+        "under_1_5": "Under 1.5",
+        "over_2_5": "Over 2.5",
+        "under_2_5": "Under 2.5",
+        "over_3_5": "Over 3.5",
+        "under_3_5": "Under 3.5",
+    }
+
+    for key, label in target_map.items():
+        market_val = targets.get(key)
+        model_val = fitted_probs.get(key)
+        if market_val is not None and model_val is not None:
+            rows.append(DiagnosticsRow(
+                target=label,
+                market=market_val,
+                model=model_val,
+                error=model_val - market_val,
+            ))
+
+    rmse = float(diag.get("rmse", 0))
+    if rmse <= 0.02:
+        status = "good"
+    elif rmse <= 0.04:
+        status = "acceptable"
+    else:
+        status = "weak"
+
+    return DiagnosticsOut(
+        match_id=match_id,
+        lambda_home=float(fit.lambda_home or 0),
+        lambda_away=float(fit.lambda_away or 0),
+        total_expected_goals=float((fit.lambda_home or 0) + (fit.lambda_away or 0)),
+        rmse=rmse,
+        fit_status=status,
+        rows=rows,
+        warnings=diag.get("warnings", []),
+        score_matrix=fit.score_matrix or [],
+    )

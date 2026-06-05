@@ -2,11 +2,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, model_config
+from pydantic import BaseModel, ConfigDict
 
 
 class TeamOut(BaseModel):
-    model_config = model_config(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     fifa_code: Optional[str] = None
@@ -25,7 +25,7 @@ class TeamCreate(BaseModel):
 
 
 class MatchOut(BaseModel):
-    model_config = model_config(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     provider_event_id: Optional[str] = None
