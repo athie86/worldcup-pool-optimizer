@@ -17,17 +17,28 @@ async def login(body: LoginRequest, response: Response):
     if not settings.ADMIN_PASSWORD_HASH:
         raise HTTPException(status_code=500, detail="Server misconfiguration: ADMIN_PASSWORD_HASH not set")
 
-    if body.username != "admin" or not verify_password(body.password, settings.ADMIN_PASSWORD_HASH):
+    try:
+        credentials_valid = body.username == "admin" and verify_password(
+            body.password, settings.ADMIN_PASSWORD_HASH
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Server misconfiguration: ADMIN_PASSWORD_HASH is invalid")
+
+    if not credentials_valid:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_session_token(body.username)
+    try:
+        token = create_session_token(body.username)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Server misconfiguration: SESSION_SECRET is invalid")
+
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
         max_age=SESSION_MAX_AGE,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.ENVIRONMENT == "production",
     )
     return AuthResponse(authenticated=True, username=body.username)
 
