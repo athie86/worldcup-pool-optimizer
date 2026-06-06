@@ -9,9 +9,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U worldcup"]
+      test: ["CMD-SHELL", "pg_isready -U worldcup -d worldcup"]
       interval: 5s
       timeout: 5s
+      start_period: 10s
       retries: 10
 
   backend:
@@ -26,9 +27,9 @@ services:
       DATABASE_URL: postgresql+psycopg://worldcup:worldcup@postgres:5432/worldcup
       ODDS_API_KEY: ${ODDS_API_KEY:-replace_me}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-replace_me}
-      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-in-production}
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SESSION_SECRET: ${SESSION_SECRET:-replace_me}
+      APP_BASE_URL: ${APP_BASE_URL:-https://pool.joseathie.com}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
       TIMEZONE: ${TIMEZONE:-America/Mexico_City}
       EXPORT_DIR: /app/exports
     volumes:
@@ -36,9 +37,14 @@ services:
     expose:
       - "8000"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()\""]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()\""
+        ]
       interval: 10s
       timeout: 5s
+      start_period: 30s
       retries: 5
       start_period: 30s
 
@@ -77,9 +83,10 @@ services:
       # Service -> the label Coolify fails to generate: forward to nginx port 80
       - traefik.http.services.frontend-pool.loadbalancer.server.port=80
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:80/"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/ >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
+      start_period: 20s
       retries: 5
       start_period: 15s
 
