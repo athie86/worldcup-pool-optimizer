@@ -37,8 +37,10 @@ class TestMatchesUnauthenticated:
         assert response.status_code == 401
 
 
-class TestImportScheduleStub:
-    async def test_import_schedule_stub_returns_message(self, auth_cookies):
+class TestImportSchedule:
+    async def test_provider_import_returns_message(self, auth_cookies):
+        # With no ODDS_API_KEY configured the endpoint returns a clear,
+        # human-readable message rather than raising.
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", cookies=auth_cookies) as ac:
             response = await ac.post("/api/matches/import-provider-schedule")
         assert response.status_code == 200
@@ -46,6 +48,14 @@ class TestImportScheduleStub:
         assert "message" in data
         assert isinstance(data["message"], str)
 
-    async def test_import_schedule_stub_unauthenticated(self, client):
+    async def test_provider_import_unauthenticated(self, client):
         response = await client.post("/api/matches/import-provider-schedule")
+        assert response.status_code == 401
+
+    async def test_file_import_unauthenticated(self, client):
+        response = await client.post("/api/matches/import")
+        assert response.status_code == 401
+
+    async def test_dashboard_stats_unauthenticated(self, client):
+        response = await client.get("/api/dashboard/stats")
         assert response.status_code == 401

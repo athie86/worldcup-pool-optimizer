@@ -16,74 +16,10 @@ from .services.poisson_model import fit_poisson, MarketProbabilities
 from .services.optimizer import compute_expected_points
 from .services.odds_normalization import compute_consensus, BookmakerMarket, RawOutcome
 from .core.logging import logger
+from .core.defaults import DEFAULT_SCORING_RULES
 
 
-SCORING_RULES_SEED = [
-    {
-        "code": "exact_score",
-        "label": "Exact Score",
-        "description": "Predict the exact final score (90 min)",
-        "points": 10.0,
-        "enabled": True,
-        "display_specificity_rank": 1,
-    },
-    {
-        "code": "correct_winner_goal_difference",
-        "label": "Correct Winner + Goal Difference",
-        "description": "Correct winner and correct goal difference (not exact score)",
-        "points": 6.0,
-        "enabled": True,
-        "display_specificity_rank": 2,
-    },
-    {
-        "code": "correct_winner_winner_goals",
-        "label": "Correct Winner + Winner's Goals",
-        "description": "Correct winner and correct goals for winning team (not exact score)",
-        "points": 5.0,
-        "enabled": True,
-        "display_specificity_rank": 3,
-    },
-    {
-        "code": "correct_winner_basic_a",
-        "label": "Correct Winner (A)",
-        "description": "Correct winner, wrong goal difference",
-        "points": 3.0,
-        "enabled": True,
-        "display_specificity_rank": 4,
-    },
-    {
-        "code": "correct_winner_basic_b",
-        "label": "Correct Winner (B)",
-        "description": "Correct winner, wrong goals for winner",
-        "points": 3.0,
-        "enabled": True,
-        "display_specificity_rank": 5,
-    },
-    {
-        "code": "correct_draw",
-        "label": "Correct Draw",
-        "description": "Predicted draw and it was a draw (not exact score)",
-        "points": 4.0,
-        "enabled": True,
-        "display_specificity_rank": 6,
-    },
-    {
-        "code": "wrong_result_team_goal",
-        "label": "Wrong Result, One Team's Goals Correct",
-        "description": "Wrong result but one team's goal count matches",
-        "points": 1.0,
-        "enabled": True,
-        "display_specificity_rank": 7,
-    },
-    {
-        "code": "wrong_result",
-        "label": "Wrong Result",
-        "description": "Catch-all: wrong result, no partial credit",
-        "points": 0.0,
-        "enabled": True,
-        "display_specificity_rank": 8,
-    },
-]
+SCORING_RULES_SEED = DEFAULT_SCORING_RULES
 
 TEAMS_SEED = [
     {"fifa_code": "ESP", "name": "Spain", "short_name": "ESP", "flag_emoji": "🇪🇸", "group_label": "A"},

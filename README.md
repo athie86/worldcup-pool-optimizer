@@ -60,6 +60,40 @@ docker compose exec backend python -m app.seed
 
 Log in with the password you set in step 2.
 
+## Using the App
+
+Once logged in, the typical first-time setup is:
+
+### 1. Import the match schedule
+
+Go to **Matches → Import Schedule**. You have two options:
+
+- **Option A — From The Odds API:** pulls the official fixtures directly from your
+  configured odds provider and links each match to its odds event (so odds refreshes
+  work automatically afterwards). Requires `ODDS_API_KEY` to be set.
+- **Option B — Upload a CSV/JSON file:** upload your own schedule. Click **Download
+  template** for a ready-to-fill CSV. Required columns are `stage`, `home_team`,
+  `away_team`; teams are created automatically. Re-importing updates existing matches
+  (matched by `match_number` or `provider_event_id`) instead of duplicating them.
+
+### 2. Set up scoring rules
+
+Go to **Scoring Rules**. If no pool configuration exists yet, click **Create default
+configuration** — it is created pre-loaded with the standard World Cup scoring rules.
+Toggle rules on/off, edit point values (changes are queued; click **Save Changes** to
+apply), or use **Reset to Defaults** at any time.
+
+### 3. Refresh odds (manual)
+
+Odds are **only ever fetched manually** — there is no background scheduler. Click
+**Refresh Odds** on the Dashboard whenever you want fresh prices. If `ODDS_API_KEY`
+is missing the app tells you so explicitly instead of failing silently.
+
+### 4. Run the optimizer
+
+Click **Run Optimizer** on the Dashboard to fit each match and generate score
+recommendations, then view them on the **Optimizer** page or **Export** them.
+
 ## Development (without Docker)
 
 ### Backend
@@ -143,9 +177,17 @@ All routes require session authentication except `/health` and `/api/auth/login`
 | GET | `/api/auth/me` | Auth status |
 | GET | `/health` | Health + DB check |
 | GET | `/api/pool-configs` | List pool configurations |
-| PUT | `/api/pool-configs/{id}/scoring-rules` | Update scoring rules |
-| GET | `/api/matches` | List matches with filters |
-| POST | `/api/odds/refresh` | Trigger manual odds refresh |
+| POST | `/api/pool-configs` | Create a config (seeded with default scoring rules) |
+| POST | `/api/pool-configs/{id}/activate` | Make a config the active one |
+| GET | `/api/pool-configs/{id}/scoring-rules` | List scoring rules (seeds defaults if empty) |
+| PATCH | `/api/pool-configs/{id}/scoring-rules/{ruleId}` | Update one rule's points/enabled |
+| POST | `/api/pool-configs/{id}/scoring-rules/reset` | Reset rules to defaults |
+| PUT | `/api/pool-configs/{id}/scoring-rules` | Bulk upsert scoring rules |
+| GET | `/api/matches` | List matches (paginated) with filters |
+| POST | `/api/matches/import` | Import schedule from CSV/JSON upload |
+| POST | `/api/matches/import-provider-schedule` | Import fixtures from the odds provider |
+| GET | `/api/dashboard/stats` | Dashboard summary metrics |
+| POST | `/api/odds/refresh` | Trigger manual odds refresh (body optional) |
 | GET | `/api/matches/{id}/odds` | Match odds + overrides |
 | PUT | `/api/matches/{id}/odds-overrides` | Set raw odds overrides |
 | POST | `/api/model-runs` | Run optimizer |

@@ -38,10 +38,14 @@ export default function DashboardPage() {
 
   const refreshOdds = useMutation({
     mutationFn: oddsApi.triggerRefresh,
-    onSuccess: () => {
-      toast.success('Odds refresh triggered');
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       qc.invalidateQueries({ queryKey: ['odds'] });
+      if (result.status === 'error') {
+        toast.error(result.message ?? 'Odds refresh failed');
+      } else {
+        toast.success(`Odds refreshed — ${result.events_count} event(s) fetched`);
+      }
     },
     onError: (e: Error) => toast.error(`Refresh failed: ${e.message}`),
   });

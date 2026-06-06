@@ -38,6 +38,12 @@ class ScoringRuleUpsert(BaseModel):
     display_specificity_rank: int
 
 
+class ScoringRulePatch(BaseModel):
+    """Partial update for a single scoring rule (points and/or enabled)."""
+    points: Optional[float] = None
+    enabled: Optional[bool] = None
+
+
 class PoolConfigOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
