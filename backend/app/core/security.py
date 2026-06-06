@@ -9,6 +9,10 @@ SESSION_COOKIE_NAME = "session"
 SESSION_MAX_AGE = 86400 * 7  # 7 days
 
 
+def is_supported_password_hash(hashed: str) -> bool:
+    return pwd_context.identify(hashed) is not None
+
+
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 

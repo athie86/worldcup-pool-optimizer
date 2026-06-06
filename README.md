@@ -211,6 +211,24 @@ Rules can be enabled/disabled and point values are editable in the UI.
 > frontend container. Confirm the domain is set on the **frontend** service and that
 > `SERVICE_FQDN_FRONTEND_80` is present, then redeploy.
 
+> **Troubleshooting login `500` errors:** In Coolify, `ADMIN_PASSWORD_HASH` must be
+> a real bcrypt hash for the password you type on the login screen. A placeholder
+> such as `replace_me` is not a bcrypt hash and will be rejected. Generate a value
+> with:
+> ```bash
+> docker compose exec backend python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('your-password'))"
+> ```
+> Then paste the generated hash into Coolify's environment variables and redeploy.
+>
+> **Troubleshooting browser `Not secure` warnings:** If the Cloudflare DNS record is
+> **DNS only** (gray cloud), browsers connect directly to the Coolify server, so
+> Coolify/Traefik must serve a publicly trusted certificate for
+> `pool.joseathie.com`. Confirm ports `80` and `443` are open to the VPS, the
+> frontend domain is configured as `https://pool.joseathie.com`, and redeploy so
+> Let's Encrypt can issue the certificate. If you enable Cloudflare proxying
+> instead (orange cloud), use Cloudflare SSL/TLS **Full (strict)** and keep a valid
+> certificate on the origin.
+
 ## Known Limitations
 
 - Independent Poisson model may understate draw probability vs correlated models.

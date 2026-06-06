@@ -2,6 +2,7 @@ from fastapi import APIRouter, Response, HTTPException, Depends
 from ..schemas.auth import LoginRequest, AuthResponse
 from ..core.security import (
     verify_password,
+    is_supported_password_hash,
     create_session_token,
     SESSION_COOKIE_NAME,
     SESSION_MAX_AGE,
@@ -12,10 +13,22 @@ from .deps import get_current_user
 router = APIRouter()
 
 
+def should_secure_cookie() -> bool:
+    app_base_url = str(getattr(settings, "APP_BASE_URL", ""))
+    environment = getattr(settings, "ENVIRONMENT", "development")
+    return app_base_url.startswith("https://") or environment == "production"
+
+
 @router.post("/login", response_model=AuthResponse)
 async def login(body: LoginRequest, response: Response):
     if not settings.ADMIN_PASSWORD_HASH:
         raise HTTPException(status_code=500, detail="Server misconfiguration: ADMIN_PASSWORD_HASH not set")
+
+    if not is_supported_password_hash(settings.ADMIN_PASSWORD_HASH):
+        raise HTTPException(
+            status_code=500,
+            detail="Server misconfiguration: ADMIN_PASSWORD_HASH must be a valid bcrypt hash",
+        )
 
     if body.username != "admin" or not verify_password(body.password, settings.ADMIN_PASSWORD_HASH):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -27,7 +40,7 @@ async def login(body: LoginRequest, response: Response):
         max_age=SESSION_MAX_AGE,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=should_secure_cookie(),
     )
     return AuthResponse(authenticated=True, username=body.username)
 

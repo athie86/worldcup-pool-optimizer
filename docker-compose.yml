@@ -28,7 +28,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://worldcup:worldcup@postgres:5432/worldcup
       ODDS_API_KEY: ${ODDS_API_KEY:-replace_me}
-      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-replace_me}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
       SESSION_SECRET: ${SESSION_SECRET:-replace_me}
       APP_BASE_URL: ${APP_BASE_URL:-https://pool.joseathie.com}
       ENVIRONMENT: ${ENVIRONMENT:-production}
