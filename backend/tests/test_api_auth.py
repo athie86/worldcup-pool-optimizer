@@ -50,6 +50,14 @@ class TestLogin:
             mock_settings.ADMIN_PASSWORD_HASH = ""
             response = await client.post("/api/auth/login", json={"username": "admin", "password": "anything"})
         assert response.status_code == 500
+        assert response.json()["detail"] == "Server misconfiguration: ADMIN_PASSWORD_HASH not set"
+
+    async def test_login_invalid_hash_configured(self, client):
+        with patch("app.api.auth.settings") as mock_settings:
+            mock_settings.ADMIN_PASSWORD_HASH = "replace_me"
+            response = await client.post("/api/auth/login", json={"username": "admin", "password": "anything"})
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Server misconfiguration: ADMIN_PASSWORD_HASH must be a valid bcrypt hash"
 
 
 class TestLogout:
