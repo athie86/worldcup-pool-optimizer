@@ -1,3 +1,4 @@
+import traceback as _traceback
 from fastapi import APIRouter, Response, HTTPException, Depends
 from ..schemas.auth import LoginRequest, AuthResponse
 from ..core.security import (
@@ -7,6 +8,7 @@ from ..core.security import (
     SESSION_MAX_AGE,
 )
 from ..core.config import settings
+from ..core.logging import logger
 from .deps import get_current_user
 
 router = APIRouter()
@@ -21,7 +23,8 @@ async def login(body: LoginRequest, response: Response):
         credentials_valid = body.username == "admin" and verify_password(
             body.password, settings.ADMIN_PASSWORD_HASH
         )
-    except Exception:
+    except Exception as exc:
+        logger.error("login: verify_password failed", error=str(exc), traceback=_traceback.format_exc())
         raise HTTPException(status_code=500, detail="Server misconfiguration: ADMIN_PASSWORD_HASH is invalid")
 
     if not credentials_valid:
@@ -29,18 +32,23 @@ async def login(body: LoginRequest, response: Response):
 
     try:
         token = create_session_token(body.username)
-    except Exception:
+    except Exception as exc:
+        logger.error("login: create_session_token failed", error=str(exc), traceback=_traceback.format_exc())
         raise HTTPException(status_code=500, detail="Server misconfiguration: SESSION_SECRET is invalid")
 
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=token,
-        max_age=SESSION_MAX_AGE,
-        httponly=True,
-        samesite="lax",
-        secure=settings.ENVIRONMENT == "production",
-    )
-    return AuthResponse(authenticated=True, username=body.username)
+    try:
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=token,
+            max_age=SESSION_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            secure=settings.ENVIRONMENT == "production",
+        )
+        return AuthResponse(authenticated=True, username=body.username)
+    except Exception as exc:
+        logger.error("login: response/serialization failed", error=str(exc), traceback=_traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Login failed: {exc}")
 
 
 @router.post("/logout")
