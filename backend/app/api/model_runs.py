@@ -14,6 +14,8 @@ from ..schemas.model_runs import (
     ModelRunCreate,
     ModelRunWithFits,
     ScoreRecommendationOut,
+    MatchRecommendationOut,
+    RecommendationItem,
     DiagnosticsOut,
     DiagnosticsRow,
 )
@@ -157,9 +159,18 @@ async def create_model_run(
     candidate_max = pool_config.candidate_max_goals
 
     errors = []
+    skipped_no_odds = 0
     for match in matches:
         try:
             market_probs = await _build_market_probs(db, match, body.odds_snapshot_id)
+
+            # Without at least a 1X2 market there is nothing to fit. Skip the
+            # match rather than attempting a fit on empty inputs (which only
+            # produces a confusing failure).
+            if market_probs.home_win is None:
+                skipped_no_odds += 1
+                continue
+
             fit = fit_score_model(market_probs)
 
             # Store model fit
@@ -204,8 +215,11 @@ async def create_model_run(
 
     run.status = "completed" if not errors else "partial"
     run.completed_at = datetime.utcnow()
-    if errors:
-        run.error_message = "; ".join(errors[:3])
+    messages = list(errors[:3])
+    if skipped_no_odds:
+        messages.append(f"{skipped_no_odds} match(es) skipped: no odds available")
+    if messages:
+        run.error_message = "; ".join(messages)
 
     await db.commit()
     await db.refresh(run)
@@ -246,7 +260,7 @@ async def get_model_run(
     return run
 
 
-@router.get("/model-runs/{run_id}/recommendations", response_model=list[ScoreRecommendationOut])
+@router.get("/model-runs/{run_id}/recommendations", response_model=list[MatchRecommendationOut])
 async def get_recommendations(
     run_id: uuid.UUID,
     top_n: int = 3,
@@ -260,23 +274,67 @@ async def get_recommendations(
     if not run_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Model run not found")
 
+    # Load each fit with its match (and teams) and recommendations so we can
+    # group the results per match — the shape the Optimizer page expects.
     result = await db.execute(
-        select(models.ScoreRecommendation)
-        .join(models.MatchModelFit)
+        select(models.MatchModelFit)
+        .options(
+            selectinload(models.MatchModelFit.score_recommendations),
+            selectinload(models.MatchModelFit.match).selectinload(models.Match.home_team),
+            selectinload(models.MatchModelFit.match).selectinload(models.Match.away_team),
+        )
         .where(models.MatchModelFit.model_run_id == run_id)
-        .where(models.ScoreRecommendation.rank <= top_n)
-        .order_by(models.MatchModelFit.id, models.ScoreRecommendation.rank)
     )
-    return result.scalars().all()
+    fits = result.scalars().all()
+
+    grouped: list[MatchRecommendationOut] = []
+    for fit in fits:
+        match = fit.match
+        home = (match.home_team.name if match and match.home_team else None) or (
+            match.home_placeholder if match else None
+        )
+        away = (match.away_team.name if match and match.away_team else None) or (
+            match.away_placeholder if match else None
+        )
+        recs = sorted(
+            (r for r in fit.score_recommendations if r.rank <= top_n),
+            key=lambda r: r.rank,
+        )
+        grouped.append(
+            MatchRecommendationOut(
+                match_id=fit.match_id,
+                home_team=home,
+                away_team=away,
+                kickoff_at=match.kickoff_at if match else None,
+                lambda_home=float(fit.lambda_home) if fit.lambda_home is not None else None,
+                lambda_away=float(fit.lambda_away) if fit.lambda_away is not None else None,
+                fit_status=fit.fit_status,
+                recommendations=[
+                    RecommendationItem(
+                        rank=r.rank,
+                        predicted_home_goals=r.predicted_home_goals,
+                        predicted_away_goals=r.predicted_away_goals,
+                        expected_points=float(r.expected_points) if r.expected_points is not None else None,
+                        variance_points=float(r.variance_points) if r.variance_points is not None else None,
+                        zero_point_probability=float(r.zero_point_probability) if r.zero_point_probability is not None else None,
+                        score_probability=float(r.score_probability) if r.score_probability is not None else None,
+                        scoring_breakdown=r.scoring_breakdown,
+                    )
+                    for r in recs
+                ],
+            )
+        )
+
+    # Sort by kickoff so the table reads chronologically.
+    grouped.sort(key=lambda g: (g.kickoff_at is None, g.kickoff_at))
+    return grouped
 
 
-@router.get("/matches/{match_id}/diagnostics", response_model=DiagnosticsOut)
-async def get_match_diagnostics(
+async def _build_diagnostics(
+    db: AsyncSession,
     match_id: uuid.UUID,
-    run_id: Optional[uuid.UUID] = None,
-    db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
-):
+    run_id: Optional[uuid.UUID],
+) -> DiagnosticsOut:
     q = (
         select(models.MatchModelFit)
         .where(models.MatchModelFit.match_id == match_id)
@@ -349,3 +407,23 @@ async def get_match_diagnostics(
         score_matrix=fit.score_matrix or [],
         prior_matrix=diag.get("prior_matrix"),
     )
+
+
+@router.get("/matches/{match_id}/diagnostics", response_model=DiagnosticsOut)
+async def get_match_diagnostics(
+    match_id: uuid.UUID,
+    run_id: Optional[uuid.UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    return await _build_diagnostics(db, match_id, run_id)
+
+
+@router.get("/model-runs/{run_id}/diagnostics/{match_id}", response_model=DiagnosticsOut)
+async def get_run_match_diagnostics(
+    run_id: uuid.UUID,
+    match_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    return await _build_diagnostics(db, match_id, run_id)

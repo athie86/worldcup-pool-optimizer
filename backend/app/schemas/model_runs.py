@@ -62,6 +62,31 @@ class ModelRunCreate(BaseModel):
     parameters: Optional[dict] = None
 
 
+class RecommendationItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    rank: int
+    predicted_home_goals: int
+    predicted_away_goals: int
+    expected_points: Optional[float] = None
+    variance_points: Optional[float] = None
+    zero_point_probability: Optional[float] = None
+    score_probability: Optional[float] = None
+    scoring_breakdown: Optional[dict] = None
+
+
+class MatchRecommendationOut(BaseModel):
+    """Recommendations grouped per match (what the Optimizer page renders)."""
+    match_id: uuid.UUID
+    home_team: Optional[str] = None
+    away_team: Optional[str] = None
+    kickoff_at: Optional[datetime] = None
+    lambda_home: Optional[float] = None
+    lambda_away: Optional[float] = None
+    fit_status: Optional[str] = None
+    recommendations: list[RecommendationItem] = []
+
+
 class ModelRunWithFits(ModelRunOut):
     match_model_fits: list[MatchModelFitOut] = []
 
