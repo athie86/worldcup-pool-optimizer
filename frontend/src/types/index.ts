@@ -62,6 +62,22 @@ export interface OddsSnapshot {
   requested_markets: string[];
 }
 
+export interface OddsRefreshResult {
+  snapshot_id: string;
+  status: string;
+  events_count: number;
+  message?: string;
+}
+
+export interface ImportSummary {
+  message: string;
+  created: number;
+  updated: number;
+  teams_created: number;
+  skipped: number;
+  errors: string[];
+}
+
 export interface MarketOdds {
   market_key: string;
   line?: number;
