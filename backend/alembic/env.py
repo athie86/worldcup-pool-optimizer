@@ -17,6 +17,13 @@ from app.db import models  # noqa: F401 - ensure all models are registered
 
 config = context.config
 
+# Prefer the runtime DATABASE_URL (set in Docker/Coolify) over the static
+# fallback in alembic.ini, which points at localhost for local development.
+# Escape any '%' so ConfigParser does not treat it as interpolation syntax.
+_database_url = os.environ.get("DATABASE_URL")
+if _database_url:
+    config.set_main_option("sqlalchemy.url", _database_url.replace("%", "%%"))
+
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 

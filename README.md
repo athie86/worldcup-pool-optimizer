@@ -183,17 +183,33 @@ Rules can be enabled/disabled and point values are editable in the UI.
 ## Deployment on Coolify / VPS
 
 1. Push this repo to GitHub/GitLab.
-2. In Coolify, create a new **Docker Compose** deployment pointing to this repo.
+2. In Coolify, create a new **Docker Compose** deployment pointing to this repo
+   (Docker Compose Location: `/docker-compose.yml`).
 3. Set the environment variables from `.env.example` in Coolify's environment tab.
-4. Mount a persistent volume for `/app/exports`.
-5. Set health checks: backend `/health`, frontend `/`.
-6. Enable HTTPS via Coolify's built-in reverse proxy.
-7. After first deploy, run migrations and seed:
+4. **Set the domain on the `frontend` service** (e.g. `https://pool.yourdomain.com`
+   under "Domains for frontend"). The `frontend` container serves the SPA *and*
+   reverse-proxies `/api` and `/health` to the backend, so the backend does **not**
+   need its own public domain.
+5. The compose file declares `SERVICE_FQDN_FRONTEND_80` on the `frontend` service.
+   This is required: it tells Coolify/Traefik to route the domain to the
+   container's internal port `80`. Without an explicit port, Coolify cannot
+   reliably auto-detect it from `expose`, and the proxy returns a
+   `404 page not found`.
+6. Persistent volumes (`postgres_data`, `export_files`) are defined in the compose
+   file and managed automatically by Coolify.
+7. HTTPS is handled automatically by Coolify's built-in reverse proxy for the
+   configured domain.
+8. **Redeploy** after setting the domain so the proxy labels are regenerated.
+9. After the first deploy, run migrations and seed (Coolify → Terminal, or SSH):
    ```bash
-   # Via Coolify terminal or SSH into your VPS
    docker compose exec backend alembic upgrade head
    docker compose exec backend python -m app.seed
    ```
+
+> **Troubleshooting `404 page not found`:** That plaintext response comes from the
+> Traefik proxy, not the app — it means no router is forwarding your domain to the
+> frontend container. Confirm the domain is set on the **frontend** service and that
+> `SERVICE_FQDN_FRONTEND_80` is present, then redeploy.
 
 ## Known Limitations
 
