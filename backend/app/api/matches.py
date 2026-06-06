@@ -92,6 +92,11 @@ class _TeamResolver:
         self._cache: dict[str, models.Team] = {}
         self.created = 0
 
+    def reset(self) -> None:
+        """Drop cached teams (e.g. after a savepoint rollback) so they are
+        re-resolved from the database on the next lookup."""
+        self._cache.clear()
+
     async def resolve(self, name: Optional[str]) -> Optional[models.Team]:
         if not name:
             return None
@@ -310,10 +315,15 @@ async def import_schedule(
             errors.append(f"Row {i}: not an object")
             continue
         try:
-            was_created, was_updated = await _upsert_match_from_row(db, resolver, row)
+            # A savepoint isolates each row: a failure rolls back only that row
+            # instead of poisoning the whole transaction ("current transaction
+            # is aborted") and dooming every subsequent row.
+            async with db.begin_nested():
+                was_created, was_updated = await _upsert_match_from_row(db, resolver, row)
             created += int(was_created)
             updated += int(was_updated)
         except Exception as exc:  # noqa: BLE001 - report row-level failures
+            resolver.reset()
             skipped += 1
             errors.append(f"Row {i}: {exc}")
 
@@ -359,35 +369,38 @@ async def import_provider_schedule(
     errors: list[str] = []
     for evt in events:
         try:
-            home = await resolver.resolve(evt.home_team)
-            away = await resolver.resolve(evt.away_team)
-            res = await db.execute(
-                select(models.Match).where(
-                    models.Match.provider_event_id == evt.id
-                )
-            )
-            existing = res.scalar_one_or_none()
-            if existing:
-                existing.home_team_id = home.id if home else existing.home_team_id
-                existing.away_team_id = away.id if away else existing.away_team_id
-                existing.kickoff_at = evt.commence_time or existing.kickoff_at
-                updated += 1
-            else:
-                db.add(
-                    models.Match(
-                        provider_event_id=evt.id,
-                        stage="group",
-                        home_team_id=home.id if home else None,
-                        away_team_id=away.id if away else None,
-                        kickoff_at=evt.commence_time,
-                        status="scheduled",
-                        scoring_basis="ninety_minutes",
-                        is_manual=False,
-                        is_complete_for_optimization=bool(home and away),
+            # Per-event savepoint: one bad fixture won't abort the whole import.
+            async with db.begin_nested():
+                home = await resolver.resolve(evt.home_team)
+                away = await resolver.resolve(evt.away_team)
+                res = await db.execute(
+                    select(models.Match).where(
+                        models.Match.provider_event_id == evt.id
                     )
                 )
-                created += 1
+                existing = res.scalar_one_or_none()
+                if existing:
+                    existing.home_team_id = home.id if home else existing.home_team_id
+                    existing.away_team_id = away.id if away else existing.away_team_id
+                    existing.kickoff_at = evt.commence_time or existing.kickoff_at
+                    updated += 1
+                else:
+                    db.add(
+                        models.Match(
+                            provider_event_id=evt.id,
+                            stage="group",
+                            home_team_id=home.id if home else None,
+                            away_team_id=away.id if away else None,
+                            kickoff_at=evt.commence_time,
+                            status="scheduled",
+                            scoring_basis="ninety_minutes",
+                            is_manual=False,
+                            is_complete_for_optimization=bool(home and away),
+                        )
+                    )
+                    created += 1
         except Exception as exc:  # noqa: BLE001
+            resolver.reset()
             errors.append(f"{evt.home_team} vs {evt.away_team}: {exc}")
 
     await db.commit()

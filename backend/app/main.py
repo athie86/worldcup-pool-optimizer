@@ -9,6 +9,17 @@ from .api import auth, health, matches, odds, pool_configs, model_runs, exports
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    # Ensure the database schema exists. The project ships without Alembic
+    # migration *versions*, so `alembic upgrade head` is a no-op and cannot be
+    # relied on to create tables. create_all is idempotent (only missing tables
+    # are created) and makes the app self-healing on a fresh database.
+    try:
+        from .db import models  # noqa: F401 - register models on the metadata
+        from .db.session import create_all_tables
+        await create_all_tables()
+    except Exception as exc:  # pragma: no cover - log and keep serving
+        from .core.logging import logger
+        logger.error("startup: create_all_tables failed", error=str(exc))
     yield
 
 
