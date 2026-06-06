@@ -10,6 +10,13 @@ class Settings(BaseSettings):
     ODDS_API_KEY: str = ""
     ADMIN_PASSWORD_HASH: str = ""
     SESSION_SECRET: str = secrets.token_hex(32)
+
+    @field_validator("SESSION_SECRET")
+    @classmethod
+    def ensure_session_secret(cls, v: str) -> str:
+        # itsdangerous raises ValueError at sign-time if the secret is empty;
+        # fall back to a random secret so the app stays functional
+        return v if v else secrets.token_hex(32)
     APP_BASE_URL: str = "http://localhost:3000"
     ENVIRONMENT: str = "development"
     TIMEZONE: str = "America/Mexico_City"
