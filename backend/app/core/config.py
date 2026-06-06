@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql+psycopg://worldcup:worldcup@localhost:5432/worldcup"
     ODDS_API_KEY: str = ""
-    ADMIN_PASSWORD_HASH: str = ""
+    ADMIN_PASSWORD: str = ""
     SESSION_SECRET: str = secrets.token_hex(32)
 
     @field_validator("SESSION_SECRET")
