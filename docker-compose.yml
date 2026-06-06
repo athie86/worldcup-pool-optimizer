@@ -8,6 +8,8 @@ services:
       POSTGRES_DB: worldcup
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U worldcup -d worldcup"]
       interval: 5s
@@ -36,6 +38,8 @@ services:
       - export_files:/app/exports
     expose:
       - "8000"
+    networks:
+      - app
     healthcheck:
       test:
         [
@@ -46,7 +50,6 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 5
-      start_period: 30s
 
   frontend:
     build:
@@ -58,38 +61,38 @@ services:
         condition: service_healthy
     expose:
       - "80"
-    # Explicit Traefik routing for Coolify's reverse proxy.
-    # Coolify reliably generates the router + TLS labels for the configured
-    # domain but often FAILS to emit the loadbalancer.server.port label for
-    # Docker Compose services, leaving Traefik with a route that has no backend
-    # port -> it answers "404 page not found". We declare the full router +
-    # service here (with high priority so it wins over Coolify's port-less
-    # router) so routing is deterministic. Replace the host with your domain.
+    networks:
+      - app
+      - coolify
     labels:
       - traefik.enable=true
-      # HTTPS router
-      - "traefik.http.routers.frontend-pool-https.rule=Host(`pool.joseathie.com`)"
-      - traefik.http.routers.frontend-pool-https.entryPoints=https
-      - traefik.http.routers.frontend-pool-https.tls=true
-      - traefik.http.routers.frontend-pool-https.tls.certresolver=letsencrypt
-      - traefik.http.routers.frontend-pool-https.service=frontend-pool
-      - traefik.http.routers.frontend-pool-https.priority=1000
-      # HTTP router -> redirect to HTTPS
-      - "traefik.http.routers.frontend-pool-http.rule=Host(`pool.joseathie.com`)"
-      - traefik.http.routers.frontend-pool-http.entryPoints=http
-      - traefik.http.routers.frontend-pool-http.middlewares=frontend-pool-redirect
-      - traefik.http.routers.frontend-pool-http.priority=1000
-      - traefik.http.middlewares.frontend-pool-redirect.redirectscheme.scheme=https
-      # Service -> the label Coolify fails to generate: forward to nginx port 80
-      - traefik.http.services.frontend-pool.loadbalancer.server.port=80
+      - traefik.docker.network=coolify
+
+      - traefik.http.routers.pool-http.rule=Host(`pool.joseathie.com`)
+      - traefik.http.routers.pool-http.entrypoints=http
+      - traefik.http.routers.pool-http.middlewares=pool-redirect-to-https
+      - traefik.http.middlewares.pool-redirect-to-https.redirectscheme.scheme=https
+
+      - traefik.http.routers.pool-https.rule=Host(`pool.joseathie.com`)
+      - traefik.http.routers.pool-https.entrypoints=https
+      - traefik.http.routers.pool-https.tls=true
+      - traefik.http.routers.pool-https.tls.certresolver=letsencrypt
+      - traefik.http.routers.pool-https.service=pool-frontend
+
+      - traefik.http.services.pool-frontend.loadbalancer.server.port=80
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/ >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       start_period: 20s
       retries: 5
-      start_period: 15s
 
 volumes:
   postgres_data:
   export_files:
+
+networks:
+  app:
+    driver: bridge
+  coolify:
+    external: true
