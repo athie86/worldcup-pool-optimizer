@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import numpy as np
-from .scoring import ScoringRule, score_points, applies
+from .scoring import ScoringRule, score_points, applies, binary_score_points, result
 from .score_model import CalibratedModelResult, CANDIDATE_MAX
 
 # Backward-compat alias so any code that still references FitResult compiles.
@@ -23,8 +23,18 @@ def compute_expected_points(
     fit: CalibratedModelResult,
     rules: list[ScoringRule],
     candidate_max: int = CANDIDATE_MAX,
+    scoring_mode: str = "standard",
+    binary_result_points: float = 1.0,
+    binary_total_goals_points: float = 1.0,
 ) -> list[Recommendation]:
-    """Enumerate candidate predictions 0-0 to candidate_max-candidate_max, compute expected points."""
+    """Enumerate candidate predictions 0-0 to candidate_max-candidate_max, compute expected points.
+
+    ``scoring_mode`` selects the scoring scheme. "standard" uses the configurable
+    ``rules`` (highest applicable rule wins). "binary" ignores ``rules`` and
+    awards ``binary_result_points`` for a correct result plus
+    ``binary_total_goals_points`` for the correct total goals, independently.
+    """
+    is_binary = scoring_mode == "binary"
     mat = fit.score_matrix
     fit_max = mat.shape[0] - 1
 
@@ -42,13 +52,30 @@ def compute_expected_points(
                     p_actual = float(mat[ah, aa])
                     if p_actual == 0.0:
                         continue
-                    pts = score_points(rules, ph, pa, ah, aa)
+                    if is_binary:
+                        pts = binary_score_points(
+                            ph, pa, ah, aa,
+                            binary_result_points, binary_total_goals_points,
+                        )
+                    else:
+                        pts = score_points(rules, ph, pa, ah, aa)
                     ep += p_actual * pts
                     ep2 += p_actual * pts * pts
                     if pts == 0:
                         p_zero += p_actual
-                    # Track scoring breakdown per rule code (contribution to EP)
-                    if pts > 0:
+                    # Track scoring breakdown (contribution to EP)
+                    if pts > 0 and is_binary:
+                        if result(ph, pa) == result(ah, aa) and binary_result_points > 0:
+                            scoring_breakdown["correct_result"] = (
+                                scoring_breakdown.get("correct_result", 0.0)
+                                + p_actual * binary_result_points
+                            )
+                        if (ph + pa) == (ah + aa) and binary_total_goals_points > 0:
+                            scoring_breakdown["correct_total_goals"] = (
+                                scoring_breakdown.get("correct_total_goals", 0.0)
+                                + p_actual * binary_total_goals_points
+                            )
+                    elif pts > 0:
                         for rule in rules:
                             if not rule.enabled:
                                 continue

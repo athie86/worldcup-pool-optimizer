@@ -82,6 +82,13 @@ class PoolConfig(Base):
     candidate_max_goals: Mapped[int] = mapped_column(Integer, default=5)
     ranking_metric: Mapped[str] = mapped_column(Text, default="expected_points")
     margin_removal_method: Mapped[str] = mapped_column(Text, default="proportional")
+    # Scoring mode: "standard" uses the configurable scoring_rules table (highest
+    # applicable rule wins); "binary" awards binary_result_points for a correct
+    # result (home win / draw / away win) plus binary_total_goals_points for the
+    # correct total goals (home + away), independently.
+    scoring_mode: Mapped[str] = mapped_column(Text, default="standard", server_default=text("'standard'"))
+    binary_result_points: Mapped[float] = mapped_column(Numeric(8, 3), default=1.0, server_default=text("1"))
+    binary_total_goals_points: Mapped[float] = mapped_column(Numeric(8, 3), default=1.0, server_default=text("1"))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -11,6 +11,7 @@ from ..schemas.pool_configs import (
     PoolConfigOut,
     PoolConfigCreate,
     PoolConfigUpdate,
+    PoolConfigDuplicate,
     ScoringRuleUpsert,
     ScoringRulePatch,
     ScoringRuleOut,
@@ -80,6 +81,70 @@ async def create_pool_config(
     return result.scalar_one()
 
 
+@router.post("/{config_id}/duplicate", response_model=PoolConfigOut, status_code=201)
+async def duplicate_pool_config(
+    config_id: uuid.UUID,
+    body: PoolConfigDuplicate,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    """Save the rules/settings of an existing config as a new named preset.
+
+    Lets the user keep multiple saved scoring systems instead of overwriting the
+    one they are editing. The new config copies every setting and scoring rule of
+    the source.
+    """
+    result = await db.execute(
+        select(models.PoolConfig)
+        .options(selectinload(models.PoolConfig.scoring_rules))
+        .where(models.PoolConfig.id == config_id)
+    )
+    source = result.scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=404, detail="Pool config not found")
+
+    new_config = models.PoolConfig(
+        name=body.name,
+        description=body.description if body.description is not None else source.description,
+        default_top_n=source.default_top_n,
+        candidate_max_goals=source.candidate_max_goals,
+        ranking_metric=source.ranking_metric,
+        margin_removal_method=source.margin_removal_method,
+        scoring_mode=source.scoring_mode,
+        binary_result_points=source.binary_result_points,
+        binary_total_goals_points=source.binary_total_goals_points,
+        active=body.active,
+    )
+    db.add(new_config)
+    await db.flush()
+
+    for rule in source.scoring_rules:
+        db.add(models.ScoringRule(
+            pool_config_id=new_config.id,
+            code=rule.code,
+            label=rule.label,
+            description=rule.description,
+            points=rule.points,
+            enabled=rule.enabled,
+            display_specificity_rank=rule.display_specificity_rank,
+        ))
+
+    if body.active:
+        await db.execute(
+            models.PoolConfig.__table__.update()
+            .where(models.PoolConfig.id != new_config.id)
+            .values(active=False)
+        )
+
+    await db.commit()
+    result = await db.execute(
+        select(models.PoolConfig)
+        .options(selectinload(models.PoolConfig.scoring_rules))
+        .where(models.PoolConfig.id == new_config.id)
+    )
+    return result.scalar_one()
+
+
 @router.get("/{config_id}", response_model=PoolConfigOut)
 async def get_pool_config(
     config_id: uuid.UUID,
@@ -123,6 +188,37 @@ async def update_pool_config(
         .where(models.PoolConfig.id == config_id)
     )
     return result.scalar_one()
+
+
+@router.delete("/{config_id}", status_code=204)
+async def delete_pool_config(
+    config_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    """Delete a saved pool configuration (and its scoring rules via cascade)."""
+    result = await db.execute(
+        select(models.PoolConfig).where(models.PoolConfig.id == config_id)
+    )
+    config = result.scalar_one_or_none()
+    if not config:
+        raise HTTPException(status_code=404, detail="Pool config not found")
+
+    was_active = config.active
+    await db.delete(config)
+    await db.flush()
+
+    # If we removed the active config, promote the oldest remaining one so the
+    # app always has an active configuration to run against.
+    if was_active:
+        remaining = await db.execute(
+            select(models.PoolConfig).order_by(models.PoolConfig.created_at.asc()).limit(1)
+        )
+        next_config = remaining.scalar_one_or_none()
+        if next_config:
+            next_config.active = True
+
+    await db.commit()
 
 
 @router.put("/{config_id}/scoring-rules", response_model=list[ScoringRuleOut])

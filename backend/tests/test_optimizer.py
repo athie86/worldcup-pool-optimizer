@@ -99,6 +99,39 @@ class TestComputeExpectedPoints:
             assert rec.predicted_home <= 3
             assert rec.predicted_away <= 3
 
+    def test_binary_mode_max_two_points(self, spain_japan_fit, default_rules):
+        recs = compute_expected_points(
+            spain_japan_fit, default_rules, candidate_max=5, scoring_mode="binary",
+        )
+        assert len(recs) == 36
+        # In binary mode the best achievable per match is result + total = 2 points,
+        # so every expected value must sit within [0, 2].
+        for rec in recs:
+            assert 0.0 <= rec.expected_points <= 2.0
+
+    def test_binary_breakdown_keys(self, spain_japan_fit, default_rules):
+        recs = compute_expected_points(
+            spain_japan_fit, default_rules, candidate_max=5, scoring_mode="binary",
+        )
+        keys = set()
+        for rec in recs:
+            keys.update(rec.scoring_breakdown.keys())
+        # Binary breakdown only ever uses these two categories.
+        assert keys <= {"correct_result", "correct_total_goals"}
+
+    def test_binary_custom_points_scale_ep(self, spain_japan_fit, default_rules):
+        base = compute_expected_points(
+            spain_japan_fit, default_rules, candidate_max=5, scoring_mode="binary",
+        )
+        scaled = compute_expected_points(
+            spain_japan_fit, default_rules, candidate_max=5, scoring_mode="binary",
+            binary_result_points=2.0, binary_total_goals_points=2.0,
+        )
+        # Doubling both point values doubles every expected value.
+        base_map = {(r.predicted_home, r.predicted_away): r.expected_points for r in base}
+        for r in scaled:
+            assert r.expected_points == pytest.approx(2 * base_map[(r.predicted_home, r.predicted_away)])
+
     def test_equal_match_symmetric_ish(self):
         """For a balanced match, top candidates should be near-symmetric."""
         market = MarketProbabilities(

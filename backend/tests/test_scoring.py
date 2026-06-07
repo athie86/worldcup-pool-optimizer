@@ -4,6 +4,7 @@ from app.services.scoring import (
     ScoringRule,
     applies,
     score_points,
+    binary_score_points,
     get_display_label,
     result,
     goal_difference,
@@ -191,6 +192,41 @@ class TestScorePoints:
         # only winner_goals applies -> 5 pts
         pts = score_points(rules, 2, 0, 2, 1)
         assert pts == 5.0
+
+
+class TestBinaryScoring:
+    def test_correct_result_and_total(self):
+        # Predict 2-1 (home win, total 3), actual 3-0 (home win, total 3): both -> 2
+        assert binary_score_points(2, 1, 3, 0) == 2.0
+
+    def test_exact_score_gets_both(self):
+        assert binary_score_points(2, 1, 2, 1) == 2.0
+
+    def test_correct_result_only(self):
+        # Predict 2-1 (home win, total 3), actual 1-0 (home win, total 1) -> 1 (result)
+        assert binary_score_points(2, 1, 1, 0) == 1.0
+
+    def test_correct_total_only(self):
+        # Predict 2-1 (home win, total 3), actual 0-3 (away win, total 3) -> 1 (total)
+        assert binary_score_points(2, 1, 0, 3) == 1.0
+
+    def test_neither(self):
+        # Predict 2-1 (home win, total 3), actual 0-2 (away win, total 2) -> 0
+        assert binary_score_points(2, 1, 0, 2) == 0.0
+
+    def test_correct_draw_counts(self):
+        # Predict 1-1 (draw, total 2), actual 0-0 (draw, total 0) -> 1 (result only)
+        assert binary_score_points(1, 1, 0, 0) == 1.0
+        # Predict 1-1 (draw, total 2), actual 2-0 (home win, total 2) -> 1 (total only)
+        assert binary_score_points(1, 1, 2, 0) == 1.0
+        # Predict 1-1 (draw, total 2), actual 2-2... no. Predict 1-1, actual 0-2 (away, total 2) -> total only
+        assert binary_score_points(1, 1, 0, 2) == 1.0
+
+    def test_custom_point_values(self):
+        # result worth 3, total worth 2
+        assert binary_score_points(2, 1, 3, 0, result_points=3.0, total_goals_points=2.0) == 5.0
+        assert binary_score_points(2, 1, 1, 0, result_points=3.0, total_goals_points=2.0) == 3.0
+        assert binary_score_points(2, 1, 0, 3, result_points=3.0, total_goals_points=2.0) == 2.0
 
 
 class TestDisplayLabel:

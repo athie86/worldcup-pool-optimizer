@@ -102,6 +102,29 @@ def score_points(rules: list[ScoringRule], ph: int, pa: int, ah: int, aa: int) -
     return max(applicable) if applicable else 0.0
 
 
+def binary_score_points(
+    ph: int,
+    pa: int,
+    ah: int,
+    aa: int,
+    result_points: float = 1.0,
+    total_goals_points: float = 1.0,
+) -> float:
+    """Binary scoring: points for a correct result and/or correct total goals.
+
+    Awards ``result_points`` when the predicted result (home win / draw /
+    away win) matches the actual result, and ``total_goals_points`` when the
+    predicted total goals (home + away) match the actual total. The two
+    components are independent, so a prediction can earn 0, one, or both.
+    """
+    pts = 0.0
+    if result(ph, pa) == result(ah, aa):
+        pts += result_points
+    if (ph + pa) == (ah + aa):
+        pts += total_goals_points
+    return pts
+
+
 def get_display_label(rules: list[ScoringRule], ph: int, pa: int, ah: int, aa: int) -> str:
     """Return the display label of the most specific applicable rule."""
     applicable = [

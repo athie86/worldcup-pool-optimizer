@@ -194,7 +194,14 @@ async def create_model_run(
             await db.flush()
 
             # Compute recommendations
-            recs = compute_expected_points(fit, rules, candidate_max)
+            recs = compute_expected_points(
+                fit,
+                rules,
+                candidate_max,
+                scoring_mode=pool_config.scoring_mode,
+                binary_result_points=float(pool_config.binary_result_points),
+                binary_total_goals_points=float(pool_config.binary_total_goals_points),
+            )
             for rec in recs:
                 sr = models.ScoreRecommendation(
                     match_model_fit_id=model_fit.id,

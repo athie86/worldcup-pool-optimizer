@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { PoolConfig, ScoringRule } from '../types';
+import type { PoolConfig, ScoringRule, ScoringMode } from '../types';
 
 export interface CreatePoolConfigPayload {
   name: string;
@@ -8,6 +8,16 @@ export interface CreatePoolConfigPayload {
   candidate_max_goals?: number;
   ranking_metric?: string;
   margin_removal_method?: string;
+  scoring_mode?: ScoringMode;
+  binary_result_points?: number;
+  binary_total_goals_points?: number;
+  active?: boolean;
+}
+
+export interface DuplicatePoolConfigPayload {
+  name: string;
+  description?: string;
+  active?: boolean;
 }
 
 export interface UpdateScoringRulePayload {
@@ -27,6 +37,9 @@ export const poolConfigsApi = {
     api.put<PoolConfig>(`/pool-configs/${id}`, payload),
 
   delete: (id: string) => api.delete<void>(`/pool-configs/${id}`),
+
+  duplicate: (id: string, payload: DuplicatePoolConfigPayload) =>
+    api.post<PoolConfig>(`/pool-configs/${id}/duplicate`, payload),
 
   setActive: (id: string) => api.post<PoolConfig>(`/pool-configs/${id}/activate`),
 

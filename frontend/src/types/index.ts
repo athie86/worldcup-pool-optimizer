@@ -42,6 +42,8 @@ export interface ScoringRule {
   display_specificity_rank: number;
 }
 
+export type ScoringMode = 'standard' | 'binary';
+
 export interface PoolConfig {
   id: string;
   name: string;
@@ -50,6 +52,9 @@ export interface PoolConfig {
   candidate_max_goals: number;
   ranking_metric: string;
   margin_removal_method: string;
+  scoring_mode: ScoringMode;
+  binary_result_points: number;
+  binary_total_goals_points: number;
   active: boolean;
   scoring_rules?: ScoringRule[];
 }

@@ -83,6 +83,19 @@ configuration** — it is created pre-loaded with the standard World Cup scoring
 Toggle rules on/off, edit point values (changes are queued; click **Save Changes** to
 apply), or use **Reset to Defaults** at any time.
 
+**Presets.** Each scoring system is a named *preset*. Instead of overwriting the one
+you are editing, use **Save as new preset** to keep the current rules and settings as a
+separate copy. Switch between presets with the dropdown, mark one **Set Active** (the
+active preset is the one the optimizer uses), or **Delete** ones you no longer need.
+
+**Scoring mode.** A preset can use one of two modes:
+
+- **Standard** — the highest-value applicable rule from the table is awarded per match.
+- **Binary** — a prediction earns *result points* for a correct outcome (home win, draw
+  or away win) **plus** *total-goals points* for the correct total goals (home + away),
+  awarded independently (so 0, 1 or 2 categories per match). Both point values default to
+  1 and are editable. The rule table is ignored in binary mode.
+
 ### 3. Refresh odds (manual)
 
 Odds are **only ever fetched manually** — there is no background scheduler. Click
@@ -178,6 +191,8 @@ All routes require session authentication except `/health` and `/api/auth/login`
 | GET | `/health` | Health + DB check |
 | GET | `/api/pool-configs` | List pool configurations |
 | POST | `/api/pool-configs` | Create a config (seeded with default scoring rules) |
+| POST | `/api/pool-configs/{id}/duplicate` | Save a config's rules/settings as a new named preset |
+| DELETE | `/api/pool-configs/{id}` | Delete a config and its scoring rules |
 | POST | `/api/pool-configs/{id}/activate` | Make a config the active one |
 | GET | `/api/pool-configs/{id}/scoring-rules` | List scoring rules (seeds defaults if empty) |
 | PATCH | `/api/pool-configs/{id}/scoring-rules/{ruleId}` | Update one rule's points/enabled |
@@ -221,6 +236,19 @@ Each match fits two independent Poisson parameters `(λ_home, λ_away)` by minim
 | `wrong_result` | 0 | Catch-all |
 
 Rules can be enabled/disabled and point values are editable in the UI.
+
+### Binary scoring mode
+
+As an alternative to the rule table above, a preset can be switched to **binary** mode,
+which scores each match in two independent parts:
+
+| Component | Default Points | Awarded when |
+|---|---:|---|
+| Correct result | 1 | Predicted outcome (home win / draw / away win) matches |
+| Correct total goals | 1 | Predicted total goals (home + away) match |
+
+The two components are independent, so a match scores 0, 1 or 2 (with the default point
+values). Both point values are configurable per preset.
 
 ## Deployment on Coolify / VPS
 
