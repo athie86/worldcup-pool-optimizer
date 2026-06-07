@@ -9,10 +9,12 @@ from .api import auth, health, matches, odds, pool_configs, model_runs, exports
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
-    # Ensure the database schema exists. The project ships without Alembic
-    # migration *versions*, so `alembic upgrade head` is a no-op and cannot be
-    # relied on to create tables. create_all is idempotent (only missing tables
-    # are created) and makes the app self-healing on a fresh database.
+    # Schema migrations are applied by the container entrypoint
+    # (`alembic upgrade head`) before the server starts. This create_all call is
+    # a defensive fallback for environments that bypass the entrypoint (e.g.
+    # running uvicorn directly): it is idempotent and only creates missing
+    # tables. Note it cannot add new columns to existing tables — that is what
+    # the Alembic migrations are for.
     try:
         from .db import models  # noqa: F401 - register models on the metadata
         from .db.session import create_all_tables

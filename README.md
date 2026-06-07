@@ -270,11 +270,14 @@ values). Both point values are configurable per preset.
 7. HTTPS is handled automatically by Coolify's built-in reverse proxy for the
    configured domain.
 8. **Redeploy** after setting the domain so the proxy labels are regenerated.
-9. After the first deploy, run migrations and seed (Coolify → Terminal, or SSH):
-   ```bash
-   docker compose exec backend alembic upgrade head
-   docker compose exec backend python -m app.seed
-   ```
+9. **Database migrations run automatically** on every deploy — the backend
+   container's entrypoint runs `alembic upgrade head` before starting the
+   server, so schema changes ship without any manual step.
+10. *(Optional, first deploy only)* To load the demo teams / sample matches and
+    odds, run the seed once. Skip this if you import your own data through the UI:
+    ```bash
+    docker compose exec backend python -m app.seed
+    ```
 
 > **Troubleshooting `404 page not found`:** That plaintext response comes from the
 > Traefik proxy, not the app — it means no router is forwarding your domain to the
