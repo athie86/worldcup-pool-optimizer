@@ -10,7 +10,7 @@ the new rule is inserted at rank 4 (just below "Correct Winner + Winner's
 Goals"). The insert is keyed on the ``(pool_config_id, code)`` unique
 constraint, so the migration is idempotent.
 
-Revision ID: 0003_add_correct_winner_any_team_goals_rule
+Revision ID: 0003_winner_any_team_goals
 Revises: 0002_pool_config_scoring_mode
 Create Date: 2026-06-08
 """
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "0003_add_correct_winner_any_team_goals_rule"
+revision = "0003_winner_any_team_goals"
 down_revision = "0002_pool_config_scoring_mode"
 branch_labels = None
 depends_on = None
