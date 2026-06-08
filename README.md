@@ -229,6 +229,7 @@ Each match fits two independent Poisson parameters `(λ_home, λ_away)` by minim
 | `exact_score` | 10 | Both goals match exactly |
 | `correct_winner_goal_difference` | 6 | Same winner + same goal difference |
 | `correct_winner_winner_goals` | 5 | Same winner + winning team's goals match |
+| `correct_winner_any_team_goals` | 4 | Same winner + any team's goals match (winner or loser) |
 | `correct_winner_basic_a` | 3 | Same winner, different goal difference |
 | `correct_winner_basic_b` | 3 | Same winner, different winning-team goals |
 | `correct_draw` | 4 | Both predict draw, not exact score |

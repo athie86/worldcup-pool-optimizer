@@ -36,12 +36,20 @@ DEFAULT_SCORING_RULES: list[dict] = [
         "display_specificity_rank": 3,
     },
     {
+        "code": "correct_winner_any_team_goals",
+        "label": "Correct Winner + Any Team's Goals",
+        "description": "Correct winner and correct goals for any team, winner or loser (not exact score)",
+        "points": 4.0,
+        "enabled": True,
+        "display_specificity_rank": 4,
+    },
+    {
         "code": "correct_winner_basic_a",
         "label": "Correct Winner (A)",
         "description": "Correct winner, wrong goal difference",
         "points": 3.0,
         "enabled": True,
-        "display_specificity_rank": 4,
+        "display_specificity_rank": 5,
     },
     {
         "code": "correct_winner_basic_b",
@@ -49,7 +57,7 @@ DEFAULT_SCORING_RULES: list[dict] = [
         "description": "Correct winner, wrong goals for winner",
         "points": 3.0,
         "enabled": True,
-        "display_specificity_rank": 5,
+        "display_specificity_rank": 6,
     },
     {
         "code": "correct_draw",
@@ -57,7 +65,7 @@ DEFAULT_SCORING_RULES: list[dict] = [
         "description": "Predicted draw and it was a draw (not exact score)",
         "points": 4.0,
         "enabled": True,
-        "display_specificity_rank": 6,
+        "display_specificity_rank": 7,
     },
     {
         "code": "wrong_result_team_goal",
@@ -65,7 +73,7 @@ DEFAULT_SCORING_RULES: list[dict] = [
         "description": "Wrong result but one team's goal count matches",
         "points": 1.0,
         "enabled": True,
-        "display_specificity_rank": 7,
+        "display_specificity_rank": 8,
     },
     {
         "code": "wrong_result",
@@ -73,6 +81,6 @@ DEFAULT_SCORING_RULES: list[dict] = [
         "description": "Catch-all: wrong result, no partial credit",
         "points": 0.0,
         "enabled": True,
-        "display_specificity_rank": 8,
+        "display_specificity_rank": 9,
     },
 ]

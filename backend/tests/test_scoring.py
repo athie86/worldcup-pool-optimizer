@@ -18,11 +18,12 @@ def rules() -> list[ScoringRule]:
         ScoringRule(code="exact_score", label="Exact Score", points=10.0, enabled=True, display_specificity_rank=1),
         ScoringRule(code="correct_winner_goal_difference", label="Correct Winner + GD", points=6.0, enabled=True, display_specificity_rank=2),
         ScoringRule(code="correct_winner_winner_goals", label="Correct Winner + WG", points=5.0, enabled=True, display_specificity_rank=3),
-        ScoringRule(code="correct_winner_basic_a", label="Correct Winner (A)", points=3.0, enabled=True, display_specificity_rank=4),
-        ScoringRule(code="correct_winner_basic_b", label="Correct Winner (B)", points=3.0, enabled=True, display_specificity_rank=5),
-        ScoringRule(code="correct_draw", label="Correct Draw", points=4.0, enabled=True, display_specificity_rank=6),
-        ScoringRule(code="wrong_result_team_goal", label="Wrong Result, Team Goal", points=1.0, enabled=True, display_specificity_rank=7),
-        ScoringRule(code="wrong_result", label="Wrong Result", points=0.0, enabled=True, display_specificity_rank=8),
+        ScoringRule(code="correct_winner_any_team_goals", label="Correct Winner + Any Team Goals", points=4.0, enabled=True, display_specificity_rank=4),
+        ScoringRule(code="correct_winner_basic_a", label="Correct Winner (A)", points=3.0, enabled=True, display_specificity_rank=5),
+        ScoringRule(code="correct_winner_basic_b", label="Correct Winner (B)", points=3.0, enabled=True, display_specificity_rank=6),
+        ScoringRule(code="correct_draw", label="Correct Draw", points=4.0, enabled=True, display_specificity_rank=7),
+        ScoringRule(code="wrong_result_team_goal", label="Wrong Result, Team Goal", points=1.0, enabled=True, display_specificity_rank=8),
+        ScoringRule(code="wrong_result", label="Wrong Result", points=0.0, enabled=True, display_specificity_rank=9),
     ]
 
 
@@ -76,6 +77,29 @@ class TestApplies:
 
     def test_correct_winner_winner_goals_exact_excluded(self):
         assert applies("correct_winner_winner_goals", 2, 1, 2, 1) is False
+
+    def test_correct_winner_any_team_goals_loser_match(self):
+        # Predict 3-1, actual 2-1: same winner (home), loser's goals match (1==1), not exact
+        assert applies("correct_winner_any_team_goals", 3, 1, 2, 1) is True
+
+    def test_correct_winner_any_team_goals_winner_match(self):
+        # Predict 2-0, actual 2-1: same winner, winner's goals match (2==2), not exact
+        assert applies("correct_winner_any_team_goals", 2, 0, 2, 1) is True
+
+    def test_correct_winner_any_team_goals_no_goal_match(self):
+        # Predict 3-1, actual 2-0: same winner but neither team's goals match
+        assert applies("correct_winner_any_team_goals", 3, 1, 2, 0) is False
+
+    def test_correct_winner_any_team_goals_wrong_winner(self):
+        # Predict 1-2 (away win), actual 2-1 (home win): wrong winner, even though a goal matches
+        assert applies("correct_winner_any_team_goals", 1, 2, 2, 1) is False
+
+    def test_correct_winner_any_team_goals_exact_excluded(self):
+        assert applies("correct_winner_any_team_goals", 2, 1, 2, 1) is False
+
+    def test_correct_winner_any_team_goals_draw_excluded(self):
+        # Both draws with a matching goal count must not apply (not a winner)
+        assert applies("correct_winner_any_team_goals", 1, 1, 1, 2) is False
 
     def test_correct_winner_basic_a(self):
         # Predict 1-0, actual 3-1: correct winner, different GD
@@ -139,6 +163,27 @@ class TestScorePoints:
         # Predict 2-0, actual 2-1: winner goals same (2), GD different -> 5 pts
         pts = score_points(rules, 2, 0, 2, 1)
         assert pts == 5.0
+
+    def test_correct_winner_any_team_goals(self, rules):
+        # Predict 3-1, actual 2-1: same winner, loser's goals match (1), winner's goals differ (3 vs 2)
+        # correct_winner_any_team_goals (4) applies; winner_goals (5) does not -> 4 pts
+        pts = score_points(rules, 3, 1, 2, 1)
+        assert pts == 4.0
+
+    def test_winner_goals_beats_any_team_goals(self, rules):
+        # Predict 2-0, actual 2-1: winner's goals match (2) -> winner_goals (5) wins over any_team (4)
+        pts = score_points(rules, 2, 0, 2, 1)
+        assert pts == 5.0
+
+    def test_any_team_goals_beats_basic_winner(self, rules):
+        # Predict 0-3, actual 1-3: same winner (away), loser's goals differ but... home 0 vs 1 differ,
+        # away 3 vs 3 match -> winner's goals match -> 5 pts
+        pts = score_points(rules, 0, 3, 1, 3)
+        assert pts == 5.0
+        # Predict 1-3, actual 1-2: same winner (away), loser (home) goals match (1==1),
+        # winner's goals differ (3 vs 2), GD differs -> any_team (4) beats basic_b (3)
+        pts = score_points(rules, 1, 3, 1, 2)
+        assert pts == 4.0
 
     def test_correct_draw_beats_basic(self, rules):
         # Predict 0-0, actual 1-1: draw, not exact -> 4 pts (correct_draw)

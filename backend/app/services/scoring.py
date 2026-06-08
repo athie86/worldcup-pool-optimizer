@@ -57,6 +57,14 @@ def applies(rule_code: str, ph: int, pa: int, ah: int, aa: int) -> bool:
             and not is_exact
         )
 
+    elif rule_code == "correct_winner_any_team_goals":
+        return (
+            pred_result == actual_result
+            and pred_result != "draw"
+            and (ph == ah or pa == aa)
+            and not is_exact
+        )
+
     elif rule_code == "correct_winner_basic_a":
         return (
             pred_result == actual_result
