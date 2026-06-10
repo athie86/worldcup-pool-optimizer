@@ -16,16 +16,6 @@ def gen_uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
-class User(Base):
-    __tablename__ = "users"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
-    username: Mapped[str] = mapped_column(Text, unique=True, default="admin")
-    password_hash: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-
 class Team(Base):
     __tablename__ = "teams"
 
@@ -283,15 +273,3 @@ class Export(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     model_run: Mapped[Optional["ModelRun"]] = relationship("ModelRun", back_populates="exports")
-
-
-class JobRun(Base):
-    __tablename__ = "job_runs"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
-    job_name: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(Text)
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    details: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

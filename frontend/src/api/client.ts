@@ -39,7 +39,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401) {
-    throw new ApiError(401, 'Invalid password');
+    const text = await res.text().catch(() => '');
+    let detail = 'Invalid password';
+    try {
+      const json = JSON.parse(text);
+      const msg = json.detail ?? '';
+      if (msg === 'Not authenticated' || msg === 'Invalid or expired session') {
+        detail = 'Session expired. Please log in again.';
+      }
+    } catch {
+      // ignore parse errors
+    }
+    throw new ApiError(401, detail);
   }
 
   if (!res.ok) {

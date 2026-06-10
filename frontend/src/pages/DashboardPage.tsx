@@ -64,12 +64,14 @@ export default function DashboardPage() {
   });
 
   const exportData = useMutation({
-    mutationFn: () =>
-      exportsApi.create({
+    mutationFn: () => {
+      const runId = stats?.latest_model_run?.id;
+      if (!runId) throw new Error('No model run available. Run the optimizer first.');
+      return exportsApi.create({
         format: 'xlsx',
-        pool_config_id: activeConfig?.id,
-        model_run_id: stats?.latest_model_run?.id,
-      }),
+        model_run_id: runId,
+      });
+    },
     onSuccess: (record) => {
       toast.success('Export created');
       window.open(exportsApi.download(record.id), '_blank');

@@ -3,11 +3,11 @@ import csv
 import io
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Any
 from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, distinct
 from sqlalchemy.orm import selectinload
 
 from ..db import models
@@ -30,7 +30,7 @@ router = APIRouter()
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _to_list_item(match: models.Match) -> MatchListItem:
+def _to_list_item(match: models.Match, has_odds: bool = False) -> MatchListItem:
     """Flatten an ORM match (with relations loaded) into the list shape."""
     return MatchListItem(
         id=match.id,
@@ -53,7 +53,7 @@ def _to_list_item(match: models.Match) -> MatchListItem:
         is_manual=match.is_manual,
         is_complete_for_optimization=match.is_complete_for_optimization,
         has_overrides=any(o.enabled for o in match.manual_overrides),
-        has_odds=len(match.odds_events) > 0,
+        has_odds=has_odds,
         fit_status=None,
     )
 
@@ -228,7 +228,6 @@ async def list_matches(
             selectinload(models.Match.home_team),
             selectinload(models.Match.away_team),
             selectinload(models.Match.manual_overrides),
-            selectinload(models.Match.odds_events),
         )
         .order_by(
             models.Match.match_number.asc().nullslast(),
@@ -238,7 +237,20 @@ async def list_matches(
         .limit(page_size)
     )
     result = await db.execute(q)
-    items = [_to_list_item(m) for m in result.scalars().all()]
+    match_list = result.scalars().all()
+
+    # Determine which matches have odds in a single query
+    match_ids = [m.id for m in match_list]
+    matches_with_odds: set = set()
+    if match_ids:
+        odds_result = await db.execute(
+            select(distinct(models.OddsEvent.match_id)).where(
+                models.OddsEvent.match_id.in_(match_ids)
+            )
+        )
+        matches_with_odds = {row[0] for row in odds_result.all()}
+
+    items = [_to_list_item(m, has_odds=m.id in matches_with_odds) for m in match_list]
     return PaginatedMatches(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -279,6 +291,8 @@ async def import_schedule(
     JSON: an array of objects with the same keys, or {"matches": [...]}.
     """
     raw = await file.read()
+    if len(raw) > 5 * 1024 * 1024:  # 5 MB
+        raise HTTPException(status_code=413, detail="File too large. Maximum upload size is 5 MB.")
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
