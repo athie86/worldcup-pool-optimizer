@@ -227,10 +227,11 @@ class TestScorePoints:
         assert pts == 4.0
 
     def test_correct_winner_basic_a_and_b_overlap(self, rules):
-        # Predict 1-0, actual 3-0: correct winner, GD different (1 vs 3), winner goals different (1 vs 3)
-        # Both basic_a and basic_b apply -> 3 pts (same points, tie)
+        # Predict 1-0, actual 3-0: correct winner, GD different (1 vs 3), winner
+        # goals different (1 vs 3), but the loser's goals match (0 vs 0), so
+        # correct_winner_any_team_goals (4 pts) outranks basic_a/basic_b (3 pts).
         pts = score_points(rules, 1, 0, 3, 0)
-        assert pts == 3.0
+        assert pts == 4.0
 
     def test_wrong_result_team_goal(self, rules):
         # Predicted 2-1 (home), actual 0-1 (away): away goals match -> 1 pt
