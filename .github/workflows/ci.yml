@@ -1,4 +1,4 @@
-name: CI
+name: CI/CD
 
 on:
   push:
@@ -81,3 +81,31 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+  deploy:
+    name: Deploy to Coolify
+    runs-on: ubuntu-latest
+    # Only deploy on direct pushes to the production branch, and only
+    # after both CI jobs pass (a failed `needs` job skips this one).
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/claude/world-cup-pool-optimizer-dXYWi'
+
+    steps:
+      - name: Trigger Coolify deploy webhook
+        env:
+          COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: |
+          if [ -z "$COOLIFY_WEBHOOK_URL" ] || [ -z "$COOLIFY_API_TOKEN" ]; then
+            echo "::error::COOLIFY_WEBHOOK_URL and COOLIFY_API_TOKEN secrets must be set in the repository settings."
+            exit 1
+          fi
+          http_code=$(curl -sS -o /tmp/coolify_response.txt -w "%{http_code}" \
+            --request GET "$COOLIFY_WEBHOOK_URL" \
+            --header "Authorization: Bearer $COOLIFY_API_TOKEN")
+          echo "Coolify responded with HTTP $http_code"
+          cat /tmp/coolify_response.txt
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::Coolify webhook returned HTTP $http_code"
+            exit 1
+          fi
