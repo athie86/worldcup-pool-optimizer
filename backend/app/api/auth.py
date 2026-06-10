@@ -1,3 +1,4 @@
+import hmac
 from fastapi import APIRouter, Response, HTTPException, Depends
 from ..schemas.auth import LoginRequest, AuthResponse
 from ..core.security import create_session_token, SESSION_COOKIE_NAME, SESSION_MAX_AGE
@@ -18,7 +19,7 @@ async def login(body: LoginRequest, response: Response):
     if not settings.ADMIN_PASSWORD:
         raise HTTPException(status_code=500, detail="Server misconfiguration: ADMIN_PASSWORD not set")
 
-    if body.password != settings.ADMIN_PASSWORD:
+    if not hmac.compare_digest(body.password.encode(), settings.ADMIN_PASSWORD.encode()):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_session_token("admin")

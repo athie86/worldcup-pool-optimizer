@@ -198,10 +198,9 @@ export interface DashboardStats {
 export interface ExportRecord {
   id: string;
   created_at: string;
-  format: 'csv' | 'xlsx';
-  filename: string;
+  format: 'csv' | 'xlsx' | 'excel';
+  filename?: string;
   model_run_id?: string;
-  pool_config_id?: string;
   download_url: string;
   size_bytes?: number;
 }
@@ -213,4 +212,5 @@ export interface AppSettings {
   refresh_hour_utc: number;
   refresh_timezone: string;
   auto_run_optimizer: boolean;
+  odds_api_key_configured: boolean;
 }

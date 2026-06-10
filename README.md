@@ -29,15 +29,15 @@ Edit `.env`:
 
 ```env
 ODDS_API_KEY=your_odds_api_key_here
-ADMIN_PASSWORD_HASH=$(python3 -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('your-chosen-password'))")
+ADMIN_PASSWORD=your-chosen-password
 SESSION_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 ```
 
-> **Tip:** If you don't have Python locally, you can generate the hash after the containers start:
+> **Note:** `ADMIN_PASSWORD` is the plain-text password you will type on the login screen.
+> `SESSION_SECRET` should be a random hex string — generate one with the command above, or with:
 > ```bash
-> docker compose exec backend python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('your-password'))"
+> docker compose exec backend python -c "import secrets; print(secrets.token_hex(32))"
 > ```
-> Then update `.env` and restart the backend.
 
 ### 3. Build and start
 
@@ -119,7 +119,7 @@ pip install -e ".[dev]"
 
 # Set env vars (or create backend/.env)
 export DATABASE_URL=postgresql+psycopg://worldcup:worldcup@localhost:5432/worldcup
-export ADMIN_PASSWORD_HASH=$(python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('admin123'))")
+export ADMIN_PASSWORD=admin123
 export SESSION_SECRET=dev-secret
 
 alembic upgrade head
@@ -214,13 +214,15 @@ All routes require session authentication except `/health` and `/api/auth/login`
 
 ## Mathematical Model
 
-Each match fits two independent Poisson parameters `(λ_home, λ_away)` by minimizing weighted squared error between model-implied and market-implied probabilities:
+Each match fits a Dixon-Coles correlated score model:
 
+- **Prior fit:** two independent Poisson parameters `(λ_home, λ_away)` plus a Dixon-Coles correlation parameter `ρ` are fitted to 1X2 market targets via L-BFGS-B
+- **Entropy-regularized calibration:** the DC prior matrix is further calibrated against O/U market targets using an entropy-regularized softmax (36 parameters, 6×6 score grid), minimizing KL divergence from the DC prior while matching market totals probabilities
 - **1X2 targets:** home win, draw, away win
 - **O/U targets:** over/under 1.5, 2.5, 3.5 (when available)
-- **Fitting grid:** 12+ goals per team (increased if tail mass > 0.001)
+- **Fitting grid:** 6×6 final score matrix (0–5 goals per team)
 - **Candidate predictions:** 0–5 goals per team (36 candidates)
-- **Expected points:** integrated over the full fitting grid
+- **Expected points:** integrated over the full 6×6 grid
 
 ## Scoring Rules (Configurable)
 
@@ -286,14 +288,10 @@ values). Both point values are configurable per preset.
 > frontend container. Confirm the domain is set on the **frontend** service and that
 > `SERVICE_FQDN_FRONTEND_80` is present, then redeploy.
 
-> **Troubleshooting login `500` errors:** In Coolify, `ADMIN_PASSWORD_HASH` must be
-> a real bcrypt hash for the password you type on the login screen. A placeholder
-> such as `replace_me` is not a bcrypt hash and will be rejected. Generate a value
-> with:
-> ```bash
-> docker compose exec backend python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('your-password'))"
-> ```
-> Then paste the generated hash into Coolify's environment variables and redeploy.
+> **Troubleshooting login `500` errors:** In Coolify, `ADMIN_PASSWORD` must be set
+> to the plain-text password you type on the login screen. Make sure the variable is
+> named `ADMIN_PASSWORD` (not `ADMIN_PASSWORD_HASH`) and contains your chosen
+> password, then redeploy.
 >
 > **Troubleshooting browser `Not secure` warnings:** If the Cloudflare DNS record is
 > **DNS only** (gray cloud), browsers connect directly to the Coolify server, so
@@ -306,7 +304,7 @@ values). Both point values are configurable per preset.
 
 ## Known Limitations
 
-- Independent Poisson model may understate draw probability vs correlated models.
+- Dixon-Coles model uses a 6×6 score grid; very high-scoring matches (6+ goals per team) fall outside the fitting grid.
 - Standard 1X2 odds reflect 90-minute outcomes; knockout scoring basis may differ.
 - Optimizes each match independently — does not account for other participants' likely picks.
 - Candidate scores capped at 0–5 per team.

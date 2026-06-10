@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from .core.config import settings
 from .core.logging import setup_logging
-from .api import auth, health, matches, odds, pool_configs, model_runs, exports
+from .api import auth, health, matches, odds, pool_configs, model_runs, exports, settings as settings_router
 
 
 @asynccontextmanager
@@ -42,3 +42,4 @@ app.include_router(matches.router, prefix="/api", tags=["matches"])
 app.include_router(odds.router, prefix="/api", tags=["odds"])
 app.include_router(model_runs.router, prefix="/api", tags=["model-runs"])
 app.include_router(exports.router, prefix="/api/exports", tags=["exports"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])

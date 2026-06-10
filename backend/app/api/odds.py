@@ -1,6 +1,6 @@
 from __future__ import annotations
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +43,7 @@ async def _do_odds_refresh(
         requested_markets=markets,
         requested_regions=regions,
         requested_bookmakers=bookmakers,
-        fetched_at=datetime.utcnow(),
+        fetched_at=datetime.now(timezone.utc),
         status="pending",
     )
     db.add(snapshot)
@@ -70,7 +70,10 @@ async def _do_odds_refresh(
         )
         snapshot.status = "success"
         snapshot.request_url = request_url
-        snapshot.raw_response = raw
+        snapshot.raw_response = {
+            "event_count": len(events),
+            "request_url": request_url,
+        }
 
         # Persist events
         for evt in events:

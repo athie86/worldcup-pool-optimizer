@@ -1,6 +1,7 @@
 from __future__ import annotations
+import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,34 +30,13 @@ from .deps import get_current_user
 router = APIRouter()
 
 
-async def _build_market_probs(
-    db: AsyncSession,
-    match: models.Match,
-    odds_snapshot_id: Optional[uuid.UUID],
+def _build_market_probs_from_data(
+    events_for_match: list,
+    overrides_for_match: list,
 ) -> MarketProbabilities:
-    """Build MarketProbabilities from latest odds for a match."""
-    # Get odds events for this match
-    q = (
-        select(models.OddsEvent)
-        .options(
-            selectinload(models.OddsEvent.bookmaker_markets).selectinload(
-                models.BookmakerMarket.market_outcomes
-            )
-        )
-        .where(models.OddsEvent.match_id == match.id)
-    )
-    if odds_snapshot_id:
-        q = q.where(models.OddsEvent.odds_snapshot_id == odds_snapshot_id)
-    else:
-        # Use most recent snapshot
-        q = q.order_by(models.OddsEvent.created_at.desc())
-
-    result = await db.execute(q)
-    events = result.scalars().all()
-
-    # Build bookmaker markets list
+    """Build MarketProbabilities from pre-loaded ORM objects (no DB access)."""
     bk_markets: list[BookmakerMarket] = []
-    for evt in events:
+    for evt in events_for_match:
         for bm in evt.bookmaker_markets:
             outcomes = [
                 RawOutcome(
@@ -76,24 +56,45 @@ async def _build_market_probs(
                 )
             )
 
-    # Get manual overrides
-    ov_result = await db.execute(
-        select(models.ManualOddsOverride).where(
-            models.ManualOddsOverride.match_id == match.id,
-            models.ManualOddsOverride.enabled == True,
-        )
-    )
-    overrides_db = ov_result.scalars().all()
     overrides = [
         RawOutcome(
             outcome_type=ov.outcome_type,
             price_decimal=float(ov.price_decimal),
             line=float(ov.line) if ov.line else None,
         )
-        for ov in overrides_db
+        for ov in overrides_for_match
+        if ov.enabled
     ]
 
     return compute_consensus(bk_markets, overrides if overrides else None)
+
+
+def _compute_all_fits(
+    market_probs_by_id: dict[uuid.UUID, MarketProbabilities],
+    rules: list[SvcScoringRule],
+    candidate_max: int,
+    scoring_mode: str,
+    binary_result_points: float,
+    binary_total_goals_points: float,
+) -> tuple[dict[uuid.UUID, tuple], dict[uuid.UUID, str]]:
+    """CPU-bound: fit all models and compute recommendations. Runs in a thread."""
+    results: dict[uuid.UUID, tuple] = {}
+    errors: dict[uuid.UUID, str] = {}
+    for match_id, mp in market_probs_by_id.items():
+        try:
+            fit = fit_score_model(mp)
+            recs = compute_expected_points(
+                fit,
+                rules,
+                candidate_max,
+                scoring_mode=scoring_mode,
+                binary_result_points=binary_result_points,
+                binary_total_goals_points=binary_total_goals_points,
+            )
+            results[match_id] = (fit, recs)
+        except Exception as exc:
+            errors[match_id] = str(exc)
+    return results, errors
 
 
 @router.post("/model-runs", response_model=ModelRunOut, status_code=201)
@@ -112,7 +113,7 @@ async def create_model_run(
     if not pool_config:
         raise HTTPException(status_code=404, detail="Pool config not found")
 
-    # Build scoring rules
+    # Build scoring rules (pure Python, no DB)
     rules = [
         SvcScoringRule(
             code=r.code,
@@ -124,19 +125,37 @@ async def create_model_run(
         for r in pool_config.scoring_rules
     ]
 
-    # Create model run
+    # Resolve snapshot: always pin to a single snapshot so consensus only uses
+    # current prices, never an average of historical refreshes.
+    snapshot_id = body.odds_snapshot_id
+    if snapshot_id is None:
+        snap_result = await db.execute(
+            select(models.OddsSnapshot.id)
+            .where(models.OddsSnapshot.status == "success")
+            .order_by(models.OddsSnapshot.fetched_at.desc())
+            .limit(1)
+        )
+        row = snap_result.scalar_one_or_none()
+        if row is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No successful odds snapshot found. Refresh odds first.",
+            )
+        snapshot_id = row
+
+    # Create model run record
     run = models.ModelRun(
         pool_config_id=body.pool_config_id,
-        odds_snapshot_id=body.odds_snapshot_id,
+        odds_snapshot_id=snapshot_id,
         run_type=body.run_type,
         status="running",
         parameters=body.parameters or {},
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(timezone.utc),
     )
     db.add(run)
     await db.flush()
 
-    # Get matches to optimize
+    # Load matches to optimize
     match_q = (
         select(models.Match)
         .options(
@@ -151,29 +170,75 @@ async def create_model_run(
 
     if not matches:
         run.status = "completed"
-        run.completed_at = datetime.utcnow()
+        run.completed_at = datetime.now(timezone.utc)
         run.error_message = "No matches marked complete_for_optimization"
         await db.commit()
         return run
 
-    candidate_max = pool_config.candidate_max_goals
+    match_ids = [m.id for m in matches]
 
-    errors = []
+    # Batch load all OddsEvents for these matches in the pinned snapshot — one query
+    events_result = await db.execute(
+        select(models.OddsEvent)
+        .options(
+            selectinload(models.OddsEvent.bookmaker_markets).selectinload(
+                models.BookmakerMarket.market_outcomes
+            )
+        )
+        .where(
+            models.OddsEvent.match_id.in_(match_ids),
+            models.OddsEvent.odds_snapshot_id == snapshot_id,
+        )
+    )
+    all_events = events_result.scalars().all()
+
+    # Group events by match_id
+    events_by_match: dict[uuid.UUID, list] = {m_id: [] for m_id in match_ids}
+    for evt in all_events:
+        if evt.match_id in events_by_match:
+            events_by_match[evt.match_id].append(evt)
+
+    # Build market probs per match (pure Python, no additional DB queries)
+    market_probs_by_id: dict[uuid.UUID, MarketProbabilities] = {}
     skipped_no_odds = 0
     for match in matches:
+        # Manual overrides are already loaded via selectinload above
+        mp = _build_market_probs_from_data(
+            events_by_match.get(match.id, []),
+            match.manual_overrides,
+        )
+        if mp.home_win is None:
+            skipped_no_odds += 1
+            continue
+        market_probs_by_id[match.id] = mp
+
+    if not market_probs_by_id:
+        run.status = "completed"
+        run.completed_at = datetime.now(timezone.utc)
+        run.error_message = f"{skipped_no_odds} match(es) skipped: no odds available"
+        await db.commit()
+        return run
+
+    # Run all CPU-bound fits in a thread so the event loop stays free
+    candidate_max = pool_config.candidate_max_goals
+    fit_results, fit_errors = await asyncio.to_thread(
+        _compute_all_fits,
+        market_probs_by_id,
+        rules,
+        candidate_max,
+        pool_config.scoring_mode,
+        float(pool_config.binary_result_points),
+        float(pool_config.binary_total_goals_points),
+    )
+
+    # Write results to DB
+    errors = list(fit_errors.values())
+    for match in matches:
+        if match.id not in fit_results:
+            continue
+        mp = market_probs_by_id[match.id]
+        fit, recs = fit_results[match.id]
         try:
-            market_probs = await _build_market_probs(db, match, body.odds_snapshot_id)
-
-            # Without at least a 1X2 market there is nothing to fit. Skip the
-            # match rather than attempting a fit on empty inputs (which only
-            # produces a confusing failure).
-            if market_probs.home_win is None:
-                skipped_no_odds += 1
-                continue
-
-            fit = fit_score_model(market_probs)
-
-            # Store model fit
             model_fit = models.MatchModelFit(
                 model_run_id=run.id,
                 match_id=match.id,
@@ -182,9 +247,9 @@ async def create_model_run(
                 fitted_home_win_prob=fit.fitted_home_win,
                 fitted_draw_prob=fit.fitted_draw,
                 fitted_away_win_prob=fit.fitted_away_win,
-                market_home_win_prob=market_probs.home_win,
-                market_draw_prob=market_probs.draw,
-                market_away_win_prob=market_probs.away_win,
+                market_home_win_prob=mp.home_win,
+                market_draw_prob=mp.draw,
+                market_away_win_prob=mp.away_win,
                 fit_error=fit.loss,
                 fit_status=fit.fit_status,
                 diagnostics=fit.diagnostics,
@@ -193,15 +258,6 @@ async def create_model_run(
             db.add(model_fit)
             await db.flush()
 
-            # Compute recommendations
-            recs = compute_expected_points(
-                fit,
-                rules,
-                candidate_max,
-                scoring_mode=pool_config.scoring_mode,
-                binary_result_points=float(pool_config.binary_result_points),
-                binary_total_goals_points=float(pool_config.binary_total_goals_points),
-            )
             for rec in recs:
                 sr = models.ScoreRecommendation(
                     match_model_fit_id=model_fit.id,
@@ -217,11 +273,11 @@ async def create_model_run(
                 db.add(sr)
 
         except Exception as exc:
-            logger.error("model_run: match failed", match_id=str(match.id), error=str(exc))
+            logger.error("model_run: write failed", match_id=str(match.id), error=str(exc))
             errors.append(str(exc))
 
     run.status = "completed" if not errors else "partial"
-    run.completed_at = datetime.utcnow()
+    run.completed_at = datetime.now(timezone.utc)
     messages = list(errors[:3])
     if skipped_no_odds:
         messages.append(f"{skipped_no_odds} match(es) skipped: no odds available")

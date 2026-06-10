@@ -10,9 +10,8 @@ from sqlalchemy.orm import selectinload
 
 from .db.session import AsyncSessionLocal
 from .db import models
-from .core.security import hash_password
 from .services.scoring import ScoringRule as SvcScoringRule
-from .services.poisson_model import fit_poisson, MarketProbabilities
+from .services.score_model import fit_score_model, MarketProbabilities
 from .services.optimizer import compute_expected_points
 from .services.odds_normalization import compute_consensus, BookmakerMarket, RawOutcome
 from .core.logging import logger
@@ -75,17 +74,7 @@ MATCHES_SEED = [
 
 async def seed():
     async with AsyncSessionLocal() as db:
-        # 1. Admin user
-        user_result = await db.execute(select(models.User).where(models.User.username == "admin"))
-        existing_user = user_result.scalar_one_or_none()
-        if not existing_user:
-            user = models.User(username="admin", password_hash=hash_password("admin123"))
-            db.add(user)
-            print("Created admin user")
-        else:
-            print("Admin user already exists")
-
-        # 2. Teams
+        # 1. Teams
         team_map: dict[str, models.Team] = {}
         for t in TEAMS_SEED:
             result = await db.execute(select(models.Team).where(models.Team.name == t["name"]))
@@ -383,7 +372,7 @@ async def seed():
                 print(f"  Match #{match.match_number}: no odds, skipping")
                 continue
 
-            fit = fit_poisson(market_probs)
+            fit = fit_score_model(market_probs)
 
             model_fit = models.MatchModelFit(
                 model_run_id=run.id,
@@ -404,7 +393,14 @@ async def seed():
             db.add(model_fit)
             await db.flush()
 
-            recs = compute_expected_points(fit, rules, pool_config.candidate_max_goals)
+            recs = compute_expected_points(
+                fit,
+                rules,
+                pool_config.candidate_max_goals,
+                scoring_mode=pool_config.scoring_mode,
+                binary_result_points=float(pool_config.binary_result_points),
+                binary_total_goals_points=float(pool_config.binary_total_goals_points),
+            )
             for rec in recs:
                 sr = models.ScoreRecommendation(
                     match_model_fit_id=model_fit.id,
