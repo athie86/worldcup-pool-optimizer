@@ -10,6 +10,7 @@ import OptimizerPage from './pages/OptimizerPage';
 import ScoringRulesPage from './pages/ScoringRulesPage';
 import OddsOverridesPage from './pages/OddsOverridesPage';
 import DiagnosticsPage from './pages/DiagnosticsPage';
+import ModelDocsPage from './pages/ModelDocsPage';
 import ExportsPage from './pages/ExportsPage';
 import SettingsPage from './pages/SettingsPage';
 
@@ -42,6 +43,7 @@ export default function App() {
               <Route path="/scoring-rules" element={<ScoringRulesPage />} />
               <Route path="/odds-overrides" element={<OddsOverridesPage />} />
               <Route path="/diagnostics" element={<DiagnosticsPage />} />
+              <Route path="/model-docs" element={<ModelDocsPage />} />
               <Route path="/exports" element={<ExportsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>

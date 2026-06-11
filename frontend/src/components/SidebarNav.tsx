@@ -7,6 +7,7 @@ import {
   List,
   BarChart2,
   Activity,
+  BookOpen,
   Download,
   Settings,
 } from 'lucide-react';
@@ -25,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/scoring-rules', label: 'Scoring Rules', icon: <List className="w-4.5 h-4.5" /> },
   { to: '/odds-overrides', label: 'Odds & Overrides', icon: <BarChart2 className="w-4.5 h-4.5" /> },
   { to: '/diagnostics', label: 'Diagnostics', icon: <Activity className="w-4.5 h-4.5" /> },
+  { to: '/model-docs', label: 'Prediction Model', icon: <BookOpen className="w-4.5 h-4.5" /> },
   { to: '/exports', label: 'Exports', icon: <Download className="w-4.5 h-4.5" /> },
   { to: '/settings', label: 'Settings', icon: <Settings className="w-4.5 h-4.5" /> },
 ];
