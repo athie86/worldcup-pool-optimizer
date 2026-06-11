@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="World Cup Pool Optimizer">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a3fb3"/>
+      <stop offset="55%" stop-color="#0f2d8a"/>
+      <stop offset="100%" stop-color="#0a1f63"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE066"/>
+      <stop offset="50%" stop-color="#F1BF00"/>
+      <stop offset="100%" stop-color="#C99500"/>
+    </linearGradient>
+    <linearGradient id="goldArrow" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#F1BF00"/>
+      <stop offset="100%" stop-color="#FFE066"/>
+    </linearGradient>
+    <radialGradient id="globeShade" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0%" stop-color="#FFE680"/>
+      <stop offset="60%" stop-color="#F1BF00"/>
+      <stop offset="100%" stop-color="#A87800"/>
+    </radialGradient>
+    <clipPath id="globeClip">
+      <circle cx="430" cy="265" r="100"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="0" fill="url(#bg)"/>
+
+  <!-- Halo ring around trophy -->
+  <path d="M 250 320 A 220 240 0 1 1 690 330"
+        fill="none" stroke="url(#gold)" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- Trophy: base plinth -->
+  <rect x="345" y="720" width="200" height="34" rx="6" fill="url(#gold)"/>
+  <rect x="365" y="690" width="160" height="30" rx="4" fill="url(#gold)"/>
+
+  <!-- Trophy: stem -->
+  <path d="M 395 690 L 410 560 L 480 560 L 495 690 Z" fill="url(#gold)"/>
+  <rect x="402" y="600" width="86" height="10" fill="#C99500" opacity="0.6"/>
+  <rect x="404" y="630" width="82" height="8" fill="#C99500" opacity="0.5"/>
+  <rect x="406" y="655" width="78" height="6" fill="#C99500" opacity="0.4"/>
+
+  <!-- Trophy: hourglass body (signature World Cup curves) -->
+  <path d="M 380 560
+           C 360 510, 340 460, 340 410
+           C 340 360, 370 320, 410 295
+           L 410 350
+           C 395 365, 388 385, 388 410
+           C 388 450, 402 495, 420 540
+           Z"
+        fill="url(#gold)"/>
+  <path d="M 510 560
+           C 530 510, 550 460, 550 410
+           C 550 360, 520 320, 480 295
+           L 480 350
+           C 495 365, 502 385, 502 410
+           C 502 450, 488 495, 470 540
+           Z"
+        fill="url(#gold)"/>
+
+  <!-- Trophy: globe top -->
+  <circle cx="430" cy="265" r="100" fill="url(#globeShade)"/>
+  <!-- Globe continents (simplified) -->
+  <g clip-path="url(#globeClip)" fill="#0f2d8a" opacity="0.85">
+    <!-- North America -->
+    <path d="M 360 215
+             C 360 205, 372 198, 384 200
+             C 396 202, 402 215, 398 230
+             C 394 245, 388 258, 376 262
+             C 370 264, 364 260, 360 252
+             C 354 240, 354 226, 360 215 Z"/>
+    <!-- South America -->
+    <path d="M 378 280
+             C 380 285, 386 292, 386 305
+             C 386 318, 380 330, 374 338
+             C 370 343, 366 343, 363 338
+             C 358 325, 358 308, 365 295
+             C 370 286, 374 281, 378 280 Z"/>
+    <!-- Europe / Africa -->
+    <path d="M 425 220
+             C 432 215, 442 217, 446 224
+             C 450 230, 447 238, 442 240
+             C 446 245, 450 252, 449 262
+             C 448 272, 442 282, 433 290
+             C 426 296, 418 300, 414 295
+             C 410 288, 414 280, 418 272
+             C 420 265, 418 258, 416 250
+             C 414 240, 418 228, 425 220 Z"/>
+    <!-- Asia -->
+    <path d="M 460 215
+             C 475 210, 492 215, 498 228
+             C 502 238, 498 250, 490 256
+             C 480 262, 470 258, 462 250
+             C 456 244, 456 232, 460 215 Z"/>
+    <!-- Australia -->
+    <path d="M 478 295
+             C 488 292, 500 298, 502 308
+             C 504 316, 498 322, 488 322
+             C 478 322, 472 316, 472 308
+             C 472 302, 474 297, 478 295 Z"/>
+  </g>
+  <!-- Globe shine -->
+  <ellipse cx="395" cy="225" rx="34" ry="18" fill="#FFE680" opacity="0.35"/>
+
+  <!-- Bar chart -->
+  <g>
+    <rect x="540" y="610" width="50" height="120" rx="4" fill="url(#gold)"/>
+    <rect x="600" y="540" width="50" height="190" rx="4" fill="url(#gold)"/>
+    <rect x="660" y="455" width="50" height="275" rx="4" fill="url(#gold)"/>
+    <rect x="720" y="365" width="50" height="365" rx="4" fill="url(#gold)"/>
+  </g>
+
+  <!-- Rising arrow / trend line over the chart -->
+  <g fill="none" stroke="url(#goldArrow)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="220,680 320,620 430,560 555,520 660,440 770,330"/>
+  </g>
+  <!-- Arrow head -->
+  <polygon points="770,330 715,335 745,365" fill="url(#goldArrow)"/>
+  <polygon points="770,330 740,300 715,335" fill="url(#goldArrow)"/>
+  <!-- Dot at chart line start -->
+  <circle cx="220" cy="680" r="16" fill="url(#gold)"/>
+  <circle cx="220" cy="680" r="7" fill="#0f2d8a"/>
+
+  <!-- WORLD CUP -->
+  <text x="512" y="880"
+        text-anchor="middle"
+        font-family="'Inter Tight', 'Inter', 'Helvetica Neue', Arial, sans-serif"
+        font-weight="900"
+        font-size="120"
+        letter-spacing="6"
+        fill="#FFFFFF">WORLD CUP</text>
+
+  <!-- POOL OPTIMIZER with dashes -->
+  <g>
+    <line x1="220" y1="955" x2="295" y2="955" stroke="url(#gold)" stroke-width="6" stroke-linecap="round"/>
+    <text x="512" y="970"
+          text-anchor="middle"
+          font-family="'Inter Tight', 'Inter', 'Helvetica Neue', Arial, sans-serif"
+          font-weight="700"
+          font-size="58"
+          letter-spacing="10"
+          fill="url(#gold)">POOL OPTIMIZER</text>
+    <line x1="729" y1="955" x2="804" y2="955" stroke="url(#gold)" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>

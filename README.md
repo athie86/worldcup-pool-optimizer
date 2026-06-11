@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/public/logo-1024.png" alt="World Cup Pool Optimizer" width="220" />
+</p>
+
 # World Cup Pool Optimizer
 
 A private web app that recommends score predictions for a 2026 FIFA World Cup pool. Fetches bookmaker odds daily, fits a Poisson model per match using 1X2 and Over/Under markets, and outputs the predicted score(s) that maximize expected pool points under a configurable scoring system.

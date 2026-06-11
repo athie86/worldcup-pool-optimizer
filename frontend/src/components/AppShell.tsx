@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { SidebarNav } from './SidebarNav';
 import { TopBar } from './TopBar';
+import { BrandMark } from './BrandMark';
 
 export function AppShell() {
   return (
@@ -12,9 +13,7 @@ export function AppShell() {
       >
         {/* Logo area */}
         <div className="h-14 flex items-center gap-3 px-4 border-b border-white/10">
-          <div className="w-8 h-8 rounded-lg bg-red-700 flex items-center justify-center text-white font-bold text-sm shrink-0">
-            WC
-          </div>
+          <BrandMark className="w-9 h-9 rounded-lg shrink-0 shadow-sm" />
           <div className="flex flex-col leading-tight">
             <span className="text-white text-xs font-semibold tracking-wide">WORLD CUP</span>
             <span className="text-yellow-400 text-xs font-medium">Pool Optimizer</span>
