@@ -30,7 +30,7 @@ function RecommendationRow({ rec }: { rec: Recommendation }) {
       <td className="px-3 py-1.5 font-mono text-xs text-slate-500">
         {(rec.score_probability * 100).toFixed(2)}%
       </td>
-      <td colSpan={2} />
+      <td colSpan={3} />
     </tr>
   );
 }
@@ -43,6 +43,7 @@ export default function OptimizerPage() {
   const [configId, setConfigId] = useState('');
   const [snapshotId, setSnapshotId] = useState('');
   const [topN, setTopN] = useState(3);
+  const [modelVersion, setModelVersion] = useState('v2');
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [runId, setRunId] = useState<string>('');
 
@@ -73,6 +74,7 @@ export default function OptimizerPage() {
         pool_config_id: configId || (configs?.find((c) => c.active)?.id ?? configs?.[0]?.id ?? ''),
         odds_snapshot_id: snapshotId || undefined,
         top_n: topN,
+        model_version: modelVersion,
       }),
     onSuccess: (run) => {
       toast.success('Optimizer run started');
@@ -99,7 +101,7 @@ export default function OptimizerPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-800">Optimizer</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Run the Poisson model optimizer</p>
+          <p className="text-sm text-slate-500 mt-0.5">Run the score-prediction model optimizer</p>
         </div>
       </div>
 
@@ -117,6 +119,18 @@ export default function OptimizerPage() {
                 {c.name} {c.active ? '(active)' : ''}
               </option>
             ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1 min-w-[200px]">
+          <label className="label">Prediction Model</label>
+          <select
+            className="input text-sm"
+            value={modelVersion}
+            onChange={(e) => setModelVersion(e.target.value)}
+          >
+            <option value="v2">V2 — Market-calibrated (full grid)</option>
+            <option value="v1">V1 — Dixon-Coles (legacy)</option>
           </select>
         </div>
 
@@ -226,6 +240,7 @@ export default function OptimizerPage() {
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">E[Pts]</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">P(0pts)</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">Variance</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">Model</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">Fit</th>
                     <th className="px-3 py-2.5 w-16" />
                   </tr>
@@ -295,6 +310,16 @@ export default function OptimizerPage() {
                           {rec.recommendations[0]
                             ? rec.recommendations[0].variance_points.toFixed(3)
                             : '—'}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-semibold text-slate-600">
+                              {rec.model_version ? `v${rec.model_version.split('.')[0]}` : 'v1'}
+                            </span>
+                            {rec.fit_tier && (
+                              <span className="text-[10px] font-mono text-slate-400">{rec.fit_tier}</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2.5">
                           <FitQualityBadge status={rec.fit_status} />
