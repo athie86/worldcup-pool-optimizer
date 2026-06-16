@@ -46,6 +46,28 @@ class Settings(BaseSettings):
     # Scheduler
     AUTO_RUN_OPTIMIZER_AFTER_REFRESH: bool = False
 
+    # ── Prediction model V2 feature flags (spec WCPO-PRED-MODEL-V2 §14.2) ──────
+    # Default to v1 so existing behaviour is unchanged until v2 is validated.
+    # v2 can be selected globally here or per-run via ModelRunCreate.parameters
+    # ({"model_version": "v2"}). The model registry always falls back to v1 (and
+    # then a neutral matrix) if v2 fails, so enabling v2 can never abort a run.
+    PREDICTION_MODEL_VERSION: str = "v1"          # "v1" | "v2"
+    V1_FALLBACK_ENABLED: bool = True
+    ENABLE_RICH_ODDS_REFRESH: bool = False
+    ENABLE_MARKET_CONSTRAINT_STORAGE: bool = True
+    ENABLE_BACKTESTING: bool = False
+    ENABLE_FUNDAMENTAL_PRIOR: bool = True
+    ENABLE_ASIAN_LINE_SUPPORT: bool = True
+
+    # V2 score-grid configuration
+    ACTUAL_SCORE_MAX: int = 12                    # full actual-outcome grid (0..N)
+    CANDIDATE_SCORE_MAX: int = 5                  # candidate predictions (0..N)
+
+    # V2 de-vig configuration
+    V2_DEVIG_METHOD: str = "auto"                 # auto|proportional|power|shin|odds_ratio|exchange_mid
+    V2_DEFAULT_AUTO_DEVIG: str = "power"
+    V2_FALLBACK_DEVIG: str = "proportional"
+
     # Export
     EXPORT_DIR: str = "/app/exports"
 

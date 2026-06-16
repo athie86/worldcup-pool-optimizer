@@ -334,6 +334,23 @@ class CalibratedModelResult:
 
     diagnostics: dict              # stored as JSONB in DB
 
+    # ── Optional V2 fields (spec WCPO-PRED-MODEL-V2). Defaulted so the v1
+    #    pipeline and all existing call-sites are unaffected. ────────────────
+    model_version: str = "1.0.0"
+    fit_tier: Optional[str] = None
+    final_home_xg: Optional[float] = None
+    final_away_xg: Optional[float] = None
+    final_total_xg: Optional[float] = None
+    actual_score_max: Optional[int] = None
+    candidate_score_max: Optional[int] = None
+    constraint_count: Optional[int] = None
+    max_constraint_error: Optional[float] = None
+    market_coverage_score: Optional[float] = None
+    market_reliability_weight: Optional[float] = None
+    used_markets: list[str] = field(default_factory=list)
+    missing_markets: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
 
 # ── Fit-status classification ──────────────────────────────────────────────────
 

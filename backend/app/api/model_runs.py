@@ -21,20 +21,30 @@ from ..schemas.model_runs import (
     DiagnosticsRow,
 )
 from ..services.scoring import ScoringRule as SvcScoringRule
-from ..services.score_model import fit_score_model, MarketProbabilities
+from ..services.score_model import MarketProbabilities
 from ..services.optimizer import compute_expected_points
 from ..services.odds_normalization import compute_consensus, BookmakerMarket, RawOutcome
+from ..services import model_registry
+from ..services.fundamental_prior import FundamentalInputs
+from ..core.config import settings
 from ..core.logging import logger
 from .deps import get_current_user
+
+# Map app stage labels to the fundamental-prior stage vocabulary.
+_STAGE_MAP = {
+    "group": "group", "group_stage": "group",
+    "round_of_32": "round_of_32", "r32": "round_of_32",
+    "round_of_16": "round_of_16", "r16": "round_of_16",
+    "quarter_final": "quarter_final", "quarterfinal": "quarter_final", "qf": "quarter_final",
+    "semi_final": "semi_final", "semifinal": "semi_final", "sf": "semi_final",
+    "final": "final", "third_place": "semi_final",
+}
 
 router = APIRouter()
 
 
-def _build_market_probs_from_data(
-    events_for_match: list,
-    overrides_for_match: list,
-) -> MarketProbabilities:
-    """Build MarketProbabilities from pre-loaded ORM objects (no DB access)."""
+def _build_bookmaker_markets(events_for_match: list) -> list[BookmakerMarket]:
+    """Build the per-bookmaker market list from pre-loaded ORM objects."""
     bk_markets: list[BookmakerMarket] = []
     for evt in events_for_match:
         for bm in evt.bookmaker_markets:
@@ -55,6 +65,19 @@ def _build_market_probs_from_data(
                     last_update=bm.last_update,
                 )
             )
+    return bk_markets
+
+
+def _build_market_probs_from_data(
+    events_for_match: list,
+    overrides_for_match: list,
+) -> tuple[MarketProbabilities, list[BookmakerMarket]]:
+    """Build (MarketProbabilities consensus, bookmaker markets) from ORM objects.
+
+    The bookmaker markets are returned so the V2 model can build richer
+    constraints; the consensus drives v1 and v2's market seed/fallback.
+    """
+    bk_markets = _build_bookmaker_markets(events_for_match)
 
     overrides = [
         RawOutcome(
@@ -66,23 +89,41 @@ def _build_market_probs_from_data(
         if ov.enabled
     ]
 
-    return compute_consensus(bk_markets, overrides if overrides else None)
+    mp = compute_consensus(bk_markets, overrides if overrides else None)
+    return mp, bk_markets
 
 
 def _compute_all_fits(
-    market_probs_by_id: dict[uuid.UUID, MarketProbabilities],
+    match_inputs_by_id: dict[uuid.UUID, dict],
     rules: list[SvcScoringRule],
     candidate_max: int,
     scoring_mode: str,
     binary_result_points: float,
     binary_total_goals_points: float,
+    model_version: str,
 ) -> tuple[dict[uuid.UUID, tuple], dict[uuid.UUID, str]]:
-    """CPU-bound: fit all models and compute recommendations. Runs in a thread."""
+    """CPU-bound: fit all models and compute recommendations. Runs in a thread.
+
+    Uses the model registry, which selects v1/v2 and falls back safely so a
+    single match can never abort the run.
+    """
     results: dict[uuid.UUID, tuple] = {}
     errors: dict[uuid.UUID, str] = {}
-    for match_id, mp in market_probs_by_id.items():
+    for match_id, inp in match_inputs_by_id.items():
         try:
-            fit = fit_score_model(mp)
+            fit = model_registry.fit(
+                model_version,
+                inp["market_probs"],
+                inp["bookmaker_markets"],
+                fundamental_inputs=inp["fundamental"],
+                actual_score_max=settings.ACTUAL_SCORE_MAX,
+                candidate_score_max=candidate_max,
+                devig_method=settings.V2_DEVIG_METHOD,
+                default_auto_devig=settings.V2_DEFAULT_AUTO_DEVIG,
+                enable_fundamental=settings.ENABLE_FUNDAMENTAL_PRIOR,
+                enable_asian_lines=settings.ENABLE_ASIAN_LINE_SUPPORT,
+                v1_fallback_enabled=settings.V1_FALLBACK_ENABLED,
+            )
             recs = compute_expected_points(
                 fit,
                 rules,
@@ -198,21 +239,37 @@ async def create_model_run(
         if evt.match_id in events_by_match:
             events_by_match[evt.match_id].append(evt)
 
-    # Build market probs per match (pure Python, no additional DB queries)
-    market_probs_by_id: dict[uuid.UUID, MarketProbabilities] = {}
+    # Resolve model version: per-run override → global setting (default v1).
+    params = body.parameters or {}
+    model_version = str(params.get("model_version") or settings.PREDICTION_MODEL_VERSION or "v1").lower()
+
+    # Build per-match inputs (pure Python, no additional DB queries)
+    match_inputs_by_id: dict[uuid.UUID, dict] = {}
     skipped_no_odds = 0
     for match in matches:
         # Manual overrides are already loaded via selectinload above
-        mp = _build_market_probs_from_data(
+        mp, bk_markets = _build_market_probs_from_data(
             events_by_match.get(match.id, []),
             match.manual_overrides,
         )
         if mp.home_win is None:
             skipped_no_odds += 1
             continue
-        market_probs_by_id[match.id] = mp
+        home_name = match.home_team.name if match.home_team else (match.home_placeholder or "")
+        away_name = match.away_team.name if match.away_team else (match.away_placeholder or "")
+        fundamental = FundamentalInputs(
+            home_team=home_name,
+            away_team=away_name,
+            neutral_venue=True,  # World Cup matches are on neutral ground by default
+            stage=_STAGE_MAP.get((match.stage or "group").lower(), "group"),
+        )
+        match_inputs_by_id[match.id] = {
+            "market_probs": mp,
+            "bookmaker_markets": bk_markets,
+            "fundamental": fundamental,
+        }
 
-    if not market_probs_by_id:
+    if not match_inputs_by_id:
         run.status = "completed"
         run.completed_at = datetime.now(timezone.utc)
         run.error_message = f"{skipped_no_odds} match(es) skipped: no odds available"
@@ -223,22 +280,25 @@ async def create_model_run(
     candidate_max = pool_config.candidate_max_goals
     fit_results, fit_errors = await asyncio.to_thread(
         _compute_all_fits,
-        market_probs_by_id,
+        match_inputs_by_id,
         rules,
         candidate_max,
         pool_config.scoring_mode,
         float(pool_config.binary_result_points),
         float(pool_config.binary_total_goals_points),
+        model_version,
     )
 
     # Write results to DB
     errors = list(fit_errors.values())
+    store_constraints = settings.ENABLE_MARKET_CONSTRAINT_STORAGE
     for match in matches:
         if match.id not in fit_results:
             continue
-        mp = market_probs_by_id[match.id]
+        mp = match_inputs_by_id[match.id]["market_probs"]
         fit, recs = fit_results[match.id]
         try:
+            constraint_details = (fit.diagnostics or {}).get("constraint_details")
             model_fit = models.MatchModelFit(
                 model_run_id=run.id,
                 match_id=match.id,
@@ -254,9 +314,51 @@ async def create_model_run(
                 fit_status=fit.fit_status,
                 diagnostics=fit.diagnostics,
                 score_matrix=fit.score_matrix.tolist(),
+                # ── V2 additive fields (None for v1 runs) ───────────────────
+                model_type=fit.model_type,
+                model_version=getattr(fit, "model_version", None),
+                fit_tier=getattr(fit, "fit_tier", None),
+                final_home_xg=getattr(fit, "final_home_xg", None),
+                final_away_xg=getattr(fit, "final_away_xg", None),
+                final_total_xg=getattr(fit, "final_total_xg", None),
+                prior_error=getattr(fit, "prior_error", None),
+                calibrated_error=getattr(fit, "calibrated_error", None),
+                max_constraint_error=getattr(fit, "max_constraint_error", None),
+                constraint_count=getattr(fit, "constraint_count", None),
+                market_coverage_score=getattr(fit, "market_coverage_score", None),
+                actual_score_max=getattr(fit, "actual_score_max", None),
+                candidate_score_max=getattr(fit, "candidate_score_max", None),
+                tail_mass=float(fit.tail_mass) if fit.tail_mass is not None else None,
+                used_markets=getattr(fit, "used_markets", None) or None,
+                market_constraints_json=constraint_details,
+                prior_score_matrix=(
+                    fit.prior_matrix.tolist() if fit.prior_matrix is not None else None
+                ),
+                calibration_parameters=(fit.diagnostics or {}).get("calibration", {}).get("parameters"),
             )
             db.add(model_fit)
             await db.flush()
+
+            # Persist consensus constraints (spec §12.3) for the rich UI/backtests.
+            if store_constraints and constraint_details:
+                for cd in constraint_details:
+                    db.add(models.MarketConstraint(
+                        odds_snapshot_id=snapshot_id,
+                        match_id=match.id,
+                        market_key=cd.get("market_key", ""),
+                        market_family=cd.get("market_family", ""),
+                        constraint_type=cd.get("constraint_type", ""),
+                        side=cd.get("side"),
+                        line=cd.get("line"),
+                        target_type="probability",
+                        target_value=cd.get("target_value", 0.0),
+                        weight=cd.get("weight", 0.0),
+                        devig_method=cd.get("devig_method", ""),
+                        consensus_method="weighted_average",
+                        bookmaker_count=cd.get("bookmaker_count", 0),
+                        quality_score=None,
+                        source_details={"quality_label": cd.get("quality_label")},
+                    ))
 
             for rec in recs:
                 sr = models.ScoreRecommendation(
@@ -363,6 +465,7 @@ async def get_recommendations(
             (r for r in fit.score_recommendations if r.rank <= top_n),
             key=lambda r: r.rank,
         )
+        diag = fit.diagnostics or {}
         grouped.append(
             MatchRecommendationOut(
                 match_id=fit.match_id,
@@ -372,6 +475,16 @@ async def get_recommendations(
                 lambda_home=float(fit.lambda_home) if fit.lambda_home is not None else None,
                 lambda_away=float(fit.lambda_away) if fit.lambda_away is not None else None,
                 fit_status=fit.fit_status,
+                model_version=fit.model_version or diag.get("model_version"),
+                fit_tier=fit.fit_tier or diag.get("fit_tier"),
+                final_home_xg=float(fit.final_home_xg) if fit.final_home_xg is not None else None,
+                final_away_xg=float(fit.final_away_xg) if fit.final_away_xg is not None else None,
+                market_coverage_score=(
+                    float(fit.market_coverage_score) if fit.market_coverage_score is not None else None
+                ),
+                used_markets=fit.used_markets or diag.get("used_markets"),
+                missing_markets=diag.get("missing_markets"),
+                warnings=diag.get("warnings"),
                 recommendations=[
                     RecommendationItem(
                         rank=r.rank,
@@ -453,6 +566,7 @@ async def _build_diagnostics(
     lh = float(fit.lambda_home or 0)
     la = float(fit.lambda_away or 0)
 
+    final = diag.get("final", {})
     return DiagnosticsOut(
         match_id=match_id,
         lambda_home=lh,
@@ -468,7 +582,28 @@ async def _build_diagnostics(
         rows=rows,
         warnings=diag.get("warnings", []),
         score_matrix=fit.score_matrix or [],
-        prior_matrix=diag.get("prior_matrix"),
+        prior_matrix=diag.get("prior_matrix") or fit.prior_score_matrix,
+        # ── V2 additive fields ──────────────────────────────────────────────
+        model_type=fit.model_type or diag.get("model_type"),
+        model_version=fit.model_version or diag.get("model_version"),
+        fit_tier=fit.fit_tier or diag.get("fit_tier"),
+        actual_score_max=fit.actual_score_max,
+        candidate_score_max=fit.candidate_score_max,
+        market_coverage_score=(
+            float(fit.market_coverage_score) if fit.market_coverage_score is not None
+            else diag.get("market_coverage_score")
+        ),
+        used_markets=(fit.used_markets if fit.used_markets is not None
+                      else diag.get("used_markets")),
+        missing_markets=diag.get("missing_markets"),
+        final_home_xg=float(fit.final_home_xg) if fit.final_home_xg is not None else final.get("home_xg"),
+        final_away_xg=float(fit.final_away_xg) if fit.final_away_xg is not None else final.get("away_xg"),
+        final_total_xg=float(fit.final_total_xg) if fit.final_total_xg is not None else final.get("total_xg"),
+        constraint_count=fit.constraint_count,
+        max_constraint_error=(
+            float(fit.max_constraint_error) if fit.max_constraint_error is not None else None
+        ),
+        constraint_details=diag.get("constraint_details"),
     )
 
 

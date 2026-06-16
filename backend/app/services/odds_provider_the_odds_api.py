@@ -200,3 +200,118 @@ class TheOddsApiProvider(OddsProvider):
             )
 
         return events, request_url, {"count": len(raw), "raw": raw}
+
+    # ── V2 rich endpoints (spec §13.2) ──────────────────────────────────────
+
+    async def fetch_event_markets(self, sport_key: str, event_id: str, **kwargs) -> dict:
+        url = f"{BASE_URL}/sports/{sport_key}/events/{event_id}/markets"
+        params = {"apiKey": self.api_key, "dateFormat": "iso"}
+        regions = kwargs.get("regions")
+        if regions:
+            params["regions"] = ",".join(regions)
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def fetch_event_odds(
+        self,
+        sport_key: str,
+        event_id: str,
+        markets: list[str],
+        regions: list[str] | None = None,
+        bookmakers: list[str] | None = None,
+        **kwargs,
+    ) -> tuple[Optional[ProviderOddsEvent], str, dict]:
+        """Fetch and canonicalize rich per-event markets via the parser."""
+        from .market_parsing import parse_market, canonical_family
+
+        url = f"{BASE_URL}/sports/{sport_key}/events/{event_id}/odds"
+        params: dict = {
+            "apiKey": self.api_key,
+            "markets": ",".join(markets),
+            "oddsFormat": "decimal",
+            "dateFormat": "iso",
+        }
+        if regions:
+            params["regions"] = ",".join(regions)
+        if bookmakers:
+            params["bookmakers"] = ",".join(bookmakers)
+        if kwargs.get("include_links"):
+            params["includeLinks"] = "true"
+        if kwargs.get("include_sids"):
+            params["includeSids"] = "true"
+        if kwargs.get("include_bet_limits"):
+            params["includeBetLimits"] = "true"
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(url, params=params)
+            request_url = str(resp.url)
+            resp.raise_for_status()
+            item = resp.json()
+
+        if not item:
+            return None, request_url, {"raw": item}
+
+        home_team = item["home_team"]
+        away_team = item["away_team"]
+        bookmakers_parsed: list[ProviderBookmaker] = []
+        for bk in item.get("bookmakers", []):
+            markets_parsed: list[ProviderMarket] = []
+            for mkt in bk.get("markets", []):
+                last_update = _parse_dt(mkt.get("last_update"))
+                cm = parse_market(mkt["key"], mkt.get("outcomes", []), home_team, away_team)
+                # Group canonical outcomes by line so each line is its own market.
+                by_line: dict[Optional[float], list[ProviderOutcome]] = {}
+                for oc in cm.outcomes:
+                    by_line.setdefault(oc.line, []).append(
+                        ProviderOutcome(name=oc.outcome_type, price=oc.price_decimal)
+                    )
+                for line, outs in by_line.items():
+                    markets_parsed.append(ProviderMarket(
+                        key=mkt["key"], last_update=last_update, outcomes=outs, line=line,
+                    ))
+            bookmakers_parsed.append(ProviderBookmaker(
+                key=bk["key"], title=bk["title"], markets=markets_parsed,
+            ))
+
+        event = ProviderOddsEvent(
+            id=item["id"], sport_key=item.get("sport_key", sport_key),
+            home_team=home_team, away_team=away_team,
+            commence_time=_parse_dt(item.get("commence_time")),
+            bookmakers=bookmakers_parsed,
+        )
+        return event, request_url, {"raw": item}
+
+    async def fetch_scores(
+        self, sport_key: str, days_from: int | None = None, **kwargs
+    ) -> tuple[list[dict], str, dict]:
+        url = f"{BASE_URL}/sports/{sport_key}/scores"
+        params: dict = {"apiKey": self.api_key, "dateFormat": "iso"}
+        if days_from is not None:
+            params["daysFrom"] = days_from
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url, params=params)
+            request_url = str(resp.url)
+            resp.raise_for_status()
+            data = resp.json()
+        return data, request_url, {"count": len(data)}
+
+    async def fetch_historical_event_odds(
+        self, sport_key: str, event_id: str, markets: list[str], snapshot: str, **kwargs
+    ) -> tuple[dict, str, dict]:
+        url = f"{BASE_URL}/historical/sports/{sport_key}/events/{event_id}/odds"
+        params: dict = {
+            "apiKey": self.api_key,
+            "markets": ",".join(markets),
+            "oddsFormat": "decimal",
+            "dateFormat": "iso",
+            "date": snapshot,
+        }
+        if kwargs.get("regions"):
+            params["regions"] = ",".join(kwargs["regions"])
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(url, params=params)
+            request_url = str(resp.url)
+            resp.raise_for_status()
+            return resp.json(), request_url, {}

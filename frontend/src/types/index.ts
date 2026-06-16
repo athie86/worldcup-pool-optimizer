@@ -140,6 +140,15 @@ export interface MatchRecommendation {
   lambda_home?: number;
   lambda_away?: number;
   fit_status: string;
+  // V2 additive fields (undefined for legacy v1 runs)
+  model_version?: string;
+  fit_tier?: string;
+  final_home_xg?: number;
+  final_away_xg?: number;
+  market_coverage_score?: number;
+  used_markets?: string[];
+  missing_markets?: string[];
+  warnings?: string[];
   recommendations: Recommendation[];
 }
 
@@ -167,6 +176,21 @@ export interface DiagnosticsRow {
   error: number;     // calibrated − market
 }
 
+export interface ConstraintDetail {
+  market_key: string;
+  market_family: string;
+  constraint_type: string;
+  side?: string | null;
+  line?: number | null;
+  target_value: number;
+  fitted_value: number;
+  error: number;
+  weight: number;
+  bookmaker_count: number;
+  quality_label?: string;
+  devig_method?: string;
+}
+
 export interface Diagnostics {
   match_id: string;
   lambda_home: number;
@@ -181,9 +205,24 @@ export interface Diagnostics {
   fit_status: string;
   rows: DiagnosticsRow[];
   warnings: string[];
-  score_matrix: number[][];              // calibrated 6×6
-  prior_matrix?: number[][];             // DC prior 6×6
+  score_matrix: number[][];              // calibrated matrix (v1: 6×6, v2: 13×13)
+  prior_matrix?: number[][];             // prior matrix (same shape as score_matrix)
   expected_points_matrix?: number[][];
+  // V2 additive fields (undefined for legacy v1 runs)
+  model_type?: string;
+  model_version?: string;
+  fit_tier?: string;
+  actual_score_max?: number;
+  candidate_score_max?: number;
+  market_coverage_score?: number;
+  used_markets?: string[];
+  missing_markets?: string[];
+  final_home_xg?: number;
+  final_away_xg?: number;
+  final_total_xg?: number;
+  constraint_count?: number;
+  max_constraint_error?: number;
+  constraint_details?: ConstraintDetail[];
 }
 
 export interface DashboardStats {

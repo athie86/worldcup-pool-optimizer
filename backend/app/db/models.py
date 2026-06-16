@@ -154,6 +154,11 @@ class BookmakerMarket(Base):
     market_key: Mapped[str] = mapped_column(Text)
     last_update: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     line: Mapped[Optional[float]] = mapped_column(Numeric(8, 3), nullable=True)
+    # ── V2 additive columns (spec §12.1) ────────────────────────────────────
+    period: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_live: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    source_market_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    market_metadata: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     odds_event: Mapped["OddsEvent"] = relationship("OddsEvent", back_populates="bookmaker_markets")
@@ -170,6 +175,13 @@ class MarketOutcome(Base):
     price_decimal: Mapped[float] = mapped_column(Numeric(12, 6))
     implied_probability: Mapped[Optional[float]] = mapped_column(Numeric(12, 9), nullable=True)
     normalized_probability: Mapped[Optional[float]] = mapped_column(Numeric(12, 9), nullable=True)
+    # ── V2 additive columns (spec §12.2) ────────────────────────────────────
+    point: Mapped[Optional[float]] = mapped_column(Numeric(8, 3), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    bet_limit: Mapped[Optional[float]] = mapped_column(Numeric(14, 2), nullable=True)
+    link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sid: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_outcome: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     bookmaker_market: Mapped["BookmakerMarket"] = relationship("BookmakerMarket", back_populates="market_outcomes")
@@ -235,6 +247,28 @@ class MatchModelFit(Base):
     fit_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     diagnostics: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     score_matrix: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    # ── V2 additive columns (spec §12.4) ────────────────────────────────────
+    model_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    model_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    fit_tier: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prior_lambda_home: Mapped[Optional[float]] = mapped_column(Numeric(12, 8), nullable=True)
+    prior_lambda_away: Mapped[Optional[float]] = mapped_column(Numeric(12, 8), nullable=True)
+    prior_rho: Mapped[Optional[float]] = mapped_column(Numeric(12, 8), nullable=True)
+    final_home_xg: Mapped[Optional[float]] = mapped_column(Numeric(12, 8), nullable=True)
+    final_away_xg: Mapped[Optional[float]] = mapped_column(Numeric(12, 8), nullable=True)
+    final_total_xg: Mapped[Optional[float]] = mapped_column(Numeric(12, 8), nullable=True)
+    prior_error: Mapped[Optional[float]] = mapped_column(Numeric(14, 10), nullable=True)
+    calibrated_error: Mapped[Optional[float]] = mapped_column(Numeric(14, 10), nullable=True)
+    max_constraint_error: Mapped[Optional[float]] = mapped_column(Numeric(14, 10), nullable=True)
+    constraint_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    market_coverage_score: Mapped[Optional[float]] = mapped_column(Numeric(12, 8), nullable=True)
+    actual_score_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    candidate_score_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tail_mass: Mapped[Optional[float]] = mapped_column(Numeric(14, 10), nullable=True)
+    used_markets: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    market_constraints_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    prior_score_matrix: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    calibration_parameters: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     model_run: Mapped["ModelRun"] = relationship("ModelRun", back_populates="match_model_fits")
@@ -261,6 +295,40 @@ class ScoreRecommendation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     match_model_fit: Mapped["MatchModelFit"] = relationship("MatchModelFit", back_populates="score_recommendations")
+
+
+class MarketConstraint(Base):
+    """Persisted consensus market constraints used by the V2 model (spec §12.3)."""
+    __tablename__ = "market_constraints"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    odds_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("odds_snapshots.id", ondelete="CASCADE"), nullable=True)
+    odds_event_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("odds_events.id", ondelete="CASCADE"), nullable=True)
+    match_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("matches.id"), nullable=True)
+
+    market_key: Mapped[str] = mapped_column(Text)
+    market_family: Mapped[str] = mapped_column(Text)
+    constraint_type: Mapped[str] = mapped_column(Text)
+    side: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    line: Mapped[Optional[float]] = mapped_column(Numeric(8, 3), nullable=True)
+
+    target_type: Mapped[str] = mapped_column(Text)
+    target_value: Mapped[float] = mapped_column(Numeric(14, 10))
+    weight: Mapped[float] = mapped_column(Numeric(14, 10))
+
+    devig_method: Mapped[str] = mapped_column(Text)
+    consensus_method: Mapped[str] = mapped_column(Text, default="weighted_average")
+
+    bookmaker_count: Mapped[int] = mapped_column(Integer, default=0)
+    excluded_bookmaker_count: Mapped[int] = mapped_column(Integer, default=0)
+    freshness_minutes: Mapped[Optional[float]] = mapped_column(Numeric(12, 4), nullable=True)
+    quality_score: Mapped[Optional[float]] = mapped_column(Numeric(12, 8), nullable=True)
+
+    source_details: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Export(Base):

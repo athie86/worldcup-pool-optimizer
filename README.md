@@ -228,6 +228,30 @@ Each match fits a Dixon-Coles correlated score model:
 - **Candidate predictions:** 0–5 goals per team (36 candidates)
 - **Expected points:** integrated over the full 6×6 grid
 
+### V2 market score model (opt-in)
+
+A second, more robust model (`market_score_model_v2`) is available behind a
+feature flag. It keeps the same API/exports/recommendation shape but:
+
+- ingests richer markets when present (alternate totals, team totals, BTTS,
+  draw-no-bet, spreads) via a **canonical parser** and de-vigs each bookmaker
+  market (`proportional`, `power`, `shin`, `odds_ratio`, `exchange_mid`);
+- builds **bookmaker-weighted consensus constraints** (freshness, sharpness,
+  outlier and market-family weighting with per-family caps);
+- fits a **Dixon-Coles prior on the full 0–12 actual-score grid**, blended with
+  an optional **fundamental team-strength prior** when markets are weak;
+- calibrates with **maximum-entropy exponential tilting** (soft constraints);
+- separates the **candidate grid (0–5)** from the **actual-score grid (0–12)**
+  so tail outcomes (6-0, 7-1, …) still affect expected points;
+- degrades through explicit **fallback tiers** (T0 rich → … → neutral) and a
+  model registry that falls back **v2 → v1 → neutral**, so a run never aborts.
+
+Enable globally with `PREDICTION_MODEL_VERSION=v2`, or per run via the API
+(`POST /api/model-runs` with `{"parameters": {"model_version": "v2"}}`). The
+default is `v1`. See `.env.example` for all V2 flags and
+`docs/` / the spec for details. The Diagnostics page shows a model-quality
+panel and a market-constraint fit table for v2 runs.
+
 ## Scoring Rules (Configurable)
 
 | Code | Default Points | Description |
@@ -281,6 +305,10 @@ values). Both point values are configurable per preset.
 9. **Database migrations run automatically** on every deploy — the backend
    container's entrypoint runs `alembic upgrade head` before starting the
    server, so schema changes ship without any manual step.
+   - **Back up the database before deploying schema changes.** Migrations are
+     additive and reversible (e.g. the V2 migration `0006` has a working
+     `downgrade`), but take a snapshot first:
+     `docker compose exec postgres pg_dump -U worldcup worldcup > backup.sql`.
 10. *(Optional, first deploy only)* To load the demo teams / sample matches and
     odds, run the seed once. Skip this if you import your own data through the UI:
     ```bash
