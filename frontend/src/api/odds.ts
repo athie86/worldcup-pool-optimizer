@@ -18,8 +18,12 @@ export const oddsApi = {
   // Manual odds refresh. Body is optional; the backend uses configured defaults.
   triggerRefresh: () => api.post<OddsRefreshResult>('/odds/refresh', {}),
 
-  // Match odds
-  getMatchOdds: (matchId: string) => api.get<MatchOdds>(`/odds/matches/${matchId}`),
+  // Match odds. Pass a snapshotId to view a specific refresh; when omitted the
+  // backend returns the latest snapshot that has odds for this match.
+  getMatchOdds: (matchId: string, snapshotId?: string) =>
+    api.get<MatchOdds>(
+      `/odds/matches/${matchId}${snapshotId ? `?snapshot_id=${snapshotId}` : ''}`
+    ),
 
   // Overrides
   listOverrides: (matchId: string) =>

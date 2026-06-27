@@ -1,5 +1,6 @@
 from __future__ import annotations
 import uuid
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
@@ -16,9 +17,19 @@ from ..schemas.odds import (
     ManualOddsOverrideUpsert,
     OddsRefreshRequest,
     OddsRefreshResponse,
+    MatchOddsOut,
+    MatchBookmakerMarketOut,
+    MatchMarketOutcomeOut,
+    ConsensusProbabilitiesOut,
 )
 from ..core.config import settings
 from ..core.logging import logger
+from ..services.odds_normalization import (
+    RawOutcome,
+    BookmakerMarket as ConsensusBookmakerMarket,
+    normalize_market,
+    compute_consensus,
+)
 from .deps import get_current_user
 
 router = APIRouter()
@@ -190,6 +201,165 @@ async def get_match_odds(
         .order_by(models.OddsEvent.created_at.desc())
     )
     return result.scalars().all()
+
+
+def _to_float(value) -> Optional[float]:
+    return float(value) if value is not None else None
+
+
+@router.get("/odds/matches/{match_id}", response_model=MatchOddsOut)
+async def get_match_market_odds(
+    match_id: uuid.UUID,
+    snapshot_id: Optional[uuid.UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    """Aggregated odds for a match, scoped to a single snapshot.
+
+    When ``snapshot_id`` is omitted we use the most recent snapshot that has
+    odds for this match. Odds are never fetched here — only the latest data
+    already pulled via a manual refresh is returned.
+    """
+    query = (
+        select(models.OddsEvent)
+        .join(models.OddsSnapshot, models.OddsEvent.odds_snapshot_id == models.OddsSnapshot.id)
+        .options(
+            selectinload(models.OddsEvent.bookmaker_markets).selectinload(
+                models.BookmakerMarket.market_outcomes
+            )
+        )
+        .where(models.OddsEvent.match_id == match_id)
+        .order_by(models.OddsSnapshot.fetched_at.desc())
+    )
+    if snapshot_id is not None:
+        query = query.where(models.OddsEvent.odds_snapshot_id == snapshot_id)
+
+    event = (await db.execute(query)).scalars().first()
+
+    bookmaker_markets_out: list[MatchBookmakerMarketOut] = []
+    consensus_input: list[ConsensusBookmakerMarket] = []
+
+    if event is not None:
+        for bm in event.bookmaker_markets:
+            line = _to_float(bm.line)
+            raw_outcomes = [
+                RawOutcome(
+                    outcome_type=o.outcome_type,
+                    price_decimal=float(o.price_decimal),
+                    line=line,
+                )
+                for o in bm.market_outcomes
+                if o.price_decimal is not None
+            ]
+            normalized = normalize_market(raw_outcomes)
+            bookmaker_markets_out.append(
+                MatchBookmakerMarketOut(
+                    bookmaker_key=bm.bookmaker_key,
+                    market_key=bm.market_key,
+                    line=line,
+                    outcomes=[
+                        MatchMarketOutcomeOut(
+                            outcome_type=o.outcome_type,
+                            price_decimal=o.price_decimal,
+                            normalized_probability=normalized.get(o.outcome_type),
+                        )
+                        for o in raw_outcomes
+                    ],
+                )
+            )
+            consensus_input.append(
+                ConsensusBookmakerMarket(
+                    bookmaker_key=bm.bookmaker_key,
+                    market_key=bm.market_key,
+                    line=line,
+                    outcomes=raw_outcomes,
+                )
+            )
+
+    overrides = (
+        (
+            await db.execute(
+                select(models.ManualOddsOverride)
+                .where(models.ManualOddsOverride.match_id == match_id)
+                .order_by(models.ManualOddsOverride.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    override_outcomes = [
+        RawOutcome(
+            outcome_type=ov.outcome_type,
+            price_decimal=float(ov.price_decimal),
+            line=_to_float(ov.line),
+        )
+        for ov in overrides
+        if ov.enabled
+    ]
+
+    consensus = compute_consensus(consensus_input, override_outcomes or None)
+
+    return MatchOddsOut(
+        match_id=match_id,
+        snapshot_id=event.odds_snapshot_id if event else None,
+        fetched_at=event.odds_snapshot.fetched_at if event and event.odds_snapshot else None,
+        bookmaker_markets=bookmaker_markets_out,
+        consensus_probabilities=ConsensusProbabilitiesOut(**asdict(consensus)),
+        overrides=overrides,
+    )
+
+
+@router.get("/odds/matches/{match_id}/overrides", response_model=list[ManualOddsOverrideOut])
+async def list_match_overrides(
+    match_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(models.ManualOddsOverride)
+        .where(models.ManualOddsOverride.match_id == match_id)
+        .order_by(models.ManualOddsOverride.created_at)
+    )
+    return result.scalars().all()
+
+
+@router.post("/odds/matches/{match_id}/overrides", response_model=ManualOddsOverrideOut)
+async def create_match_override(
+    match_id: uuid.UUID,
+    body: ManualOddsOverrideUpsert,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
+    match = (
+        await db.execute(select(models.Match).where(models.Match.id == match_id))
+    ).scalar_one_or_none()
+    if not match:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    existing = (
+        await db.execute(
+            select(models.ManualOddsOverride).where(
+                models.ManualOddsOverride.match_id == match_id,
+                models.ManualOddsOverride.market_key == body.market_key,
+                models.ManualOddsOverride.line == body.line,
+                models.ManualOddsOverride.outcome_type == body.outcome_type,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing is not None:
+        existing.price_decimal = body.price_decimal
+        existing.enabled = body.enabled
+        existing.reason = body.reason
+        override = existing
+    else:
+        override = models.ManualOddsOverride(match_id=match_id, **body.model_dump())
+        db.add(override)
+
+    await db.commit()
+    await db.refresh(override)
+    return override
 
 
 @router.put("/matches/{match_id}/odds-overrides", response_model=list[ManualOddsOverrideOut])

@@ -57,6 +57,31 @@ class OddsSnapshotOut(BaseModel):
     created_at: datetime
 
 
+class MatchMarketOutcomeOut(BaseModel):
+    outcome_type: str
+    price_decimal: float
+    normalized_probability: Optional[float] = None
+
+
+class MatchBookmakerMarketOut(BaseModel):
+    bookmaker_key: Optional[str] = None
+    market_key: str
+    line: Optional[float] = None
+    outcomes: list[MatchMarketOutcomeOut] = []
+
+
+class ConsensusProbabilitiesOut(BaseModel):
+    home_win: Optional[float] = None
+    draw: Optional[float] = None
+    away_win: Optional[float] = None
+    over_1_5: Optional[float] = None
+    under_1_5: Optional[float] = None
+    over_2_5: Optional[float] = None
+    under_2_5: Optional[float] = None
+    over_3_5: Optional[float] = None
+    under_3_5: Optional[float] = None
+
+
 class ManualOddsOverrideOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -70,6 +95,18 @@ class ManualOddsOverrideOut(BaseModel):
     reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+
+class MatchOddsOut(BaseModel):
+    """Aggregated odds for a single match, scoped to one snapshot (the latest
+    by default). Drives the Odds & Overrides page."""
+
+    match_id: uuid.UUID
+    snapshot_id: Optional[uuid.UUID] = None
+    fetched_at: Optional[datetime] = None
+    bookmaker_markets: list[MatchBookmakerMarketOut] = []
+    consensus_probabilities: ConsensusProbabilitiesOut = ConsensusProbabilitiesOut()
+    overrides: list[ManualOddsOverrideOut] = []
 
 
 class ManualOddsOverrideUpsert(BaseModel):

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { matchesApi } from '../api/matches';
@@ -15,16 +15,32 @@ export default function OddsOverridesPage() {
   const [searchParams] = useSearchParams();
   const initialMatchId = searchParams.get('match') ?? '';
   const [selectedMatchId, setSelectedMatchId] = useState(initialMatchId);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState('');
 
   const { data: matchesData, isLoading: matchesLoading } = useQuery({
     queryKey: ['matches', {}],
     queryFn: () => matchesApi.list({ page_size: 200 }),
   });
 
+  const { data: snapshots, isLoading: snapshotsLoading } = useQuery({
+    queryKey: ['odds', 'snapshots'],
+    queryFn: () => oddsApi.listSnapshots(),
+  });
+
+  // Default to the latest successful refresh (snapshots come back newest-first).
+  // We never trigger a refresh automatically — just show the latest available.
+  useEffect(() => {
+    if (!snapshots || snapshots.length === 0) return;
+    const stillValid = snapshots.some((s) => s.id === selectedSnapshotId);
+    if (selectedSnapshotId && stillValid) return;
+    const latest = snapshots.find((s) => s.status === 'success') ?? snapshots[0];
+    setSelectedSnapshotId(latest.id);
+  }, [snapshots, selectedSnapshotId]);
+
   const { data: matchOdds, isLoading: oddsLoading } = useQuery({
-    queryKey: ['odds', 'match', selectedMatchId],
-    queryFn: () => oddsApi.getMatchOdds(selectedMatchId),
-    enabled: !!selectedMatchId,
+    queryKey: ['odds', 'match', selectedMatchId, selectedSnapshotId],
+    queryFn: () => oddsApi.getMatchOdds(selectedMatchId, selectedSnapshotId || undefined),
+    enabled: !!selectedMatchId && !!selectedSnapshotId,
   });
 
   const refreshOdds = useMutation({
@@ -52,7 +68,16 @@ export default function OddsOverridesPage() {
     onError: (e: Error) => toast.error(`Override failed: ${e.message}`),
   });
 
-  const matches = matchesData?.items ?? [];
+  // Match selector runs newest → oldest by kickoff. Matches without a kickoff
+  // time sort to the bottom.
+  const matches = useMemo(() => {
+    const items = [...(matchesData?.items ?? [])];
+    return items.sort((a, b) => {
+      const ta = a.kickoff_at ? new Date(a.kickoff_at).getTime() : -Infinity;
+      const tb = b.kickoff_at ? new Date(b.kickoff_at).getTime() : -Infinity;
+      return tb - ta;
+    });
+  }, [matchesData]);
   const selectedMatch = matches.find((m) => m.id === selectedMatchId);
 
   const handleSaveOverride = async (
@@ -86,8 +111,25 @@ export default function OddsOverridesPage() {
         </button>
       </div>
 
-      {/* Match selector */}
-      <div className="card p-4 flex flex-wrap items-center gap-4">
+      {/* Odds set + match selector */}
+      <div className="card p-4 flex flex-wrap items-end gap-4">
+        <div className="flex flex-col gap-1 min-w-[240px]">
+          <label className="label">Odds Set (Refresh)</label>
+          <select
+            className="input text-sm"
+            value={selectedSnapshotId}
+            onChange={(e) => setSelectedSnapshotId(e.target.value)}
+            disabled={snapshotsLoading || !snapshots?.length}
+          >
+            {!snapshots?.length && <option value="">— No refreshes yet —</option>}
+            {snapshots?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {format(new Date(s.fetched_at), 'MMM d, HH:mm')}
+                {s.status && s.status !== 'success' ? ` (${s.status})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="flex flex-col gap-1 flex-1 min-w-[240px]">
           <label className="label">Select Match</label>
           <select
@@ -129,14 +171,21 @@ export default function OddsOverridesPage() {
         <div className="card p-8 text-center text-slate-400">Loading odds...</div>
       )}
 
-      {selectedMatchId && matchOdds && (
+      {selectedMatchId && matchOdds && matchOdds.bookmaker_markets.length === 0 && (
+        <div className="card p-8 text-center text-slate-400 text-sm">
+          No odds for this match in the selected refresh. Pick another odds set, or
+          use “Refresh Odds” to pull the latest.
+        </div>
+      )}
+
+      {selectedMatchId && matchOdds && matchOdds.bookmaker_markets.length > 0 && (
         <>
           {/* Consensus probabilities summary */}
           <div className="card p-4">
             <h3 className="text-sm font-semibold text-slate-700 mb-3">Consensus Probabilities</h3>
             <div className="flex flex-wrap gap-4 text-sm">
               {Object.entries(matchOdds.consensus_probabilities)
-                .filter(([, v]) => v !== undefined)
+                .filter(([, v]) => v != null)
                 .map(([k, v]) => (
                   <div key={k} className="flex flex-col gap-0.5">
                     <span className="text-xs text-slate-500">{k.replace(/_/g, ' ')}</span>
