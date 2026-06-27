@@ -118,6 +118,7 @@ export default function OptimizerPage() {
 
   const activeConfig = configs?.find((c) => c.active) ?? configs?.[0];
   const effectiveConfigId = configId || activeConfig?.id || '';
+  const selectedConfig = configs?.find((c) => c.id === effectiveConfigId);
 
   return (
     <div className="flex flex-col gap-5">
@@ -130,8 +131,8 @@ export default function OptimizerPage() {
 
       {/* Controls */}
       <div className="card p-5 flex flex-wrap items-end gap-4">
-        <div className="flex flex-col gap-1 min-w-[180px]">
-          <label className="label">Pool Configuration</label>
+        <div className="flex flex-col gap-1 min-w-[220px]">
+          <label className="label">Scoring Ruleset</label>
           <select
             className="input text-sm"
             value={configId || effectiveConfigId}
@@ -139,7 +140,8 @@ export default function OptimizerPage() {
           >
             {configs?.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} {c.active ? '(active)' : ''}
+                {c.name} · {c.scoring_mode === 'binary' ? 'Binary' : 'Standard'}
+                {c.active ? ' · active' : ''}
               </option>
             ))}
           </select>
@@ -212,6 +214,26 @@ export default function OptimizerPage() {
           </div>
         )}
       </div>
+
+      {/* What will run — makes the ruleset/scoring-type connection explicit */}
+      {selectedConfig && (
+        <div className="card px-4 py-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+          <span className="text-slate-400">Will run:</span>
+          <span className="font-semibold text-slate-800">{selectedConfig.name}</span>
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+              selectedConfig.scoring_mode === 'binary'
+                ? 'bg-violet-100 text-violet-700'
+                : 'bg-sky-100 text-sky-700'
+            }`}
+          >
+            {selectedConfig.scoring_mode === 'binary' ? 'Binary scoring' : 'Standard scoring'}
+          </span>
+          {selectedConfig.active && (
+            <span className="text-xs text-emerald-600 font-medium">active</span>
+          )}
+        </div>
+      )}
 
       {/* Current Run Status */}
       {runId && runs && (
