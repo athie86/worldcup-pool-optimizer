@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Play, ChevronDown, ChevronRight, Activity } from 'lucide-react';
+import { Play, ChevronDown, ChevronRight, Activity, History, Sliders } from 'lucide-react';
 import { poolConfigsApi } from '../api/poolConfigs';
 import { oddsApi } from '../api/odds';
 import { modelRunsApi } from '../api/modelRuns';
-import type { Recommendation } from '../types';
+import type { Recommendation, ModelRun, PoolConfig } from '../types';
 import { FitQualityBadge } from '../components/FitQualityBadge';
 import { StatusBadge } from '../components/StatusBadge';
 import { useToastContext } from '../components/Toast';
@@ -19,6 +19,38 @@ const STAGE_LABELS: Record<string, string> = {
   final: 'F',
   third_place: '3rd',
 };
+
+const MODEL_LABELS: Record<string, string> = {
+  v2: 'V2 — Market-calibrated',
+  v1: 'V1 — Dixon-Coles',
+};
+
+/** Normalize a stored model_version (e.g. "v2", "2.1.0") to a short tag like "V2". */
+function modelTag(version?: string | null): string {
+  if (!version) return 'V1';
+  const s = String(version).toLowerCase();
+  if (s.startsWith('v')) return s.toUpperCase();
+  return `V${s.split('.')[0]}`;
+}
+
+/** Resolve the human-facing identity of a run: its ruleset, model and combine modes. */
+function describeRun(run: ModelRun | undefined, configs: PoolConfig[] | undefined) {
+  const config = configs?.find((c) => c.id === run?.pool_config_id);
+  const model = modelTag(run?.parameters?.model_version as string | undefined);
+  return {
+    config,
+    rulesetName: config?.name ?? 'Unknown ruleset',
+    model,
+    modelLabel: MODEL_LABELS[model.toLowerCase()] ?? model,
+  };
+}
+
+/** One-line, self-describing label for the "previous runs" dropdown. */
+function runOptionLabel(run: ModelRun, configs: PoolConfig[] | undefined): string {
+  const { rulesetName, model } = describeRun(run, configs);
+  const when = format(new Date(run.started_at), 'MMM d HH:mm');
+  return `${when}  ·  ${rulesetName}  ·  ${model}  ·  ${run.status}`;
+}
 
 function StageBadge({ stage }: { stage?: string }) {
   if (!stage || stage === 'group') return null;
@@ -122,6 +154,13 @@ export default function OptimizerPage() {
   const effectiveConfigId = configId || activeConfig?.id || '';
   const selectedConfig = configs?.find((c) => c.id === effectiveConfigId);
 
+  // Most-recent first, so the dropdown reads top-down chronologically.
+  const sortedRuns = [...(runs ?? [])].sort(
+    (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
+  );
+  const viewedRun = runs?.find((r) => r.id === runId);
+  const viewed = describeRun(viewedRun, configs);
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
@@ -131,134 +170,180 @@ export default function OptimizerPage() {
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="card p-5 flex flex-wrap items-end gap-4">
-        <div className="flex flex-col gap-1 min-w-[220px]">
-          <label className="label">Scoring Ruleset</label>
-          <select
-            className="input text-sm"
-            value={configId || effectiveConfigId}
-            onChange={(e) => setConfigId(e.target.value)}
-          >
-            {configs?.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-                {c.active ? ' · active' : ''}
-              </option>
-            ))}
-          </select>
+      {/* ── New run ─────────────────────────────────────────────────────── */}
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Sliders className="w-4 h-4 text-slate-400" />
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700">New optimizer run</h3>
+            <p className="text-xs text-slate-500">
+              Pick the scoring ruleset and model, then run. These settings only affect the
+              run you start here.
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-1 min-w-[200px]">
-          <label className="label">Prediction Model</label>
-          <select
-            className="input text-sm"
-            value={modelVersion}
-            onChange={(e) => setModelVersion(e.target.value)}
-          >
-            <option value="v2">V2 — Market-calibrated (full grid)</option>
-            <option value="v1">V1 — Dixon-Coles (legacy)</option>
-          </select>
-        </div>
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex flex-col gap-1 min-w-[220px]">
+            <label className="label">Scoring Ruleset</label>
+            <select
+              className="input text-sm"
+              value={configId || effectiveConfigId}
+              onChange={(e) => setConfigId(e.target.value)}
+            >
+              {configs?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.active ? ' · active' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="flex flex-col gap-1 min-w-[200px]">
-          <label className="label">Odds Snapshot</label>
-          <select
-            className="input text-sm"
-            value={snapshotId}
-            onChange={(e) => setSnapshotId(e.target.value)}
-          >
-            <option value="">Latest snapshot</option>
-            {snapshots?.map((s) => (
-              <option key={s.id} value={s.id}>
-                {format(new Date(s.fetched_at), 'MMM d HH:mm')} — {s.status}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-1 w-24">
-          <label className="label">Top N</label>
-          <input
-            type="number"
-            className="input text-sm font-mono"
-            min={1}
-            max={10}
-            value={topN}
-            onChange={(e) => setTopN(parseInt(e.target.value) || 1)}
-          />
-        </div>
-
-        <button
-          className="btn-primary"
-          onClick={() => runMutation.mutate()}
-          disabled={runMutation.isPending}
-        >
-          <Play className="w-4 h-4" />
-          {runMutation.isPending ? 'Running...' : 'Run Optimizer'}
-        </button>
-
-        {runs && runs.length > 0 && (
           <div className="flex flex-col gap-1 min-w-[200px]">
-            <label className="label">View Run</label>
+            <label className="label">Prediction Model</label>
+            <select
+              className="input text-sm"
+              value={modelVersion}
+              onChange={(e) => setModelVersion(e.target.value)}
+            >
+              <option value="v2">V2 — Market-calibrated (full grid)</option>
+              <option value="v1">V1 — Dixon-Coles (legacy)</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1 min-w-[200px]">
+            <label className="label">Odds Snapshot</label>
+            <select
+              className="input text-sm"
+              value={snapshotId}
+              onChange={(e) => setSnapshotId(e.target.value)}
+            >
+              <option value="">Latest snapshot</option>
+              {snapshots?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {format(new Date(s.fetched_at), 'MMM d HH:mm')} — {s.status}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1 w-24">
+            <label className="label">Top N</label>
+            <input
+              type="number"
+              className="input text-sm font-mono"
+              min={1}
+              max={10}
+              value={topN}
+              onChange={(e) => setTopN(parseInt(e.target.value) || 1)}
+            />
+          </div>
+
+          <button
+            className="btn-primary"
+            onClick={() => runMutation.mutate()}
+            disabled={runMutation.isPending}
+          >
+            <Play className="w-4 h-4" />
+            {runMutation.isPending ? 'Running...' : 'Run Optimizer'}
+          </button>
+        </div>
+
+        {/* What will run — makes the ruleset/model/combine-mode connection explicit */}
+        {selectedConfig && (
+          <div className="mt-4 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+            <span className="text-slate-400">Will run:</span>
+            <span className="font-semibold text-slate-800">{selectedConfig.name}</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+              {modelTag(modelVersion)}
+            </span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-700">
+              Group: {selectedConfig.group_combine_mode === 'additive' ? 'Additive' : 'Best match'}
+            </span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-violet-100 text-violet-700">
+              Knockout: {selectedConfig.knockout_combine_mode === 'additive' ? 'Additive' : 'Best match'}
+            </span>
+            {selectedConfig.active && (
+              <span className="text-xs text-emerald-600 font-medium">active</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Previous runs ───────────────────────────────────────────────── */}
+      {sortedRuns.length > 0 && (
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <History className="w-4 h-4 text-slate-400" />
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700">Previous runs</h3>
+              <p className="text-xs text-slate-500">
+                Each run is labelled with the ruleset and model it was executed under.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1 max-w-xl">
+            <label className="label">View run</label>
             <select
               className="input text-sm"
               value={runId}
               onChange={(e) => setRunId(e.target.value)}
             >
-              <option value="">Select a run</option>
-              {runs.map((r) => (
+              <option value="">Select a run…</option>
+              {sortedRuns.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {format(new Date(r.started_at), 'MMM d HH:mm')} — {r.status}
+                  {runOptionLabel(r, configs)}
                 </option>
               ))}
             </select>
           </div>
-        )}
-      </div>
 
-      {/* What will run — makes the ruleset/combine-mode connection explicit */}
-      {selectedConfig && (
-        <div className="card px-4 py-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-          <span className="text-slate-400">Will run:</span>
-          <span className="font-semibold text-slate-800">{selectedConfig.name}</span>
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-700">
-            Group: {selectedConfig.group_combine_mode === 'additive' ? 'Additive' : 'Best match'}
-          </span>
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-violet-100 text-violet-700">
-            Knockout: {selectedConfig.knockout_combine_mode === 'additive' ? 'Additive' : 'Best match'}
-          </span>
-          {selectedConfig.active && (
-            <span className="text-xs text-emerald-600 font-medium">active</span>
-          )}
-        </div>
-      )}
-
-      {/* Current Run Status */}
-      {runId && runs && (
-        <div className="card p-4 flex items-center gap-4">
-          {(() => {
-            const run = runs.find((r) => r.id === runId);
-            if (!run) return null;
-            return (
-              <>
-                <StatusBadge status={run.status} />
-                <span className="text-sm text-slate-600">
-                  Started: {format(new Date(run.started_at), 'MMM d, HH:mm:ss')}
+          {/* Viewed-run identity + status — derived from the run itself, not the
+              new-run selectors above, so the table below is never mislabelled. */}
+          {viewedRun && (
+            <div className="mt-4 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-slate-400">Viewing:</span>
+                <span className="font-semibold text-slate-800">{viewed.rulesetName}</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+                  {viewed.model}
                 </span>
-                {run.completed_at && (
-                  <span className="text-sm text-slate-600">
-                    Completed: {format(new Date(run.completed_at), 'HH:mm:ss')}
+                {viewed.config && (
+                  <>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-700">
+                      Group: {viewed.config.group_combine_mode === 'additive' ? 'Additive' : 'Best match'}
+                    </span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-violet-100 text-violet-700">
+                      Knockout: {viewed.config.knockout_combine_mode === 'additive' ? 'Additive' : 'Best match'}
+                    </span>
+                  </>
+                )}
+                {!viewed.config && (
+                  <span className="text-[11px] text-amber-600">
+                    ruleset no longer available
                   </span>
                 )}
-                {run.summary && (
-                  <span className="text-sm text-slate-600">
-                    {run.summary.optimized}/{run.summary.matches_total} optimized
+              </div>
+              <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
+                <StatusBadge status={viewedRun.status} />
+                <span>
+                  Started: {format(new Date(viewedRun.started_at), 'MMM d, HH:mm:ss')}
+                </span>
+                {viewedRun.completed_at && (
+                  <span>
+                    Completed: {format(new Date(viewedRun.completed_at), 'HH:mm:ss')}
                   </span>
                 )}
-              </>
-            );
-          })()}
+                {viewedRun.summary && (
+                  <span>
+                    {viewedRun.summary.optimized}/{viewedRun.summary.matches_total} optimized
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
