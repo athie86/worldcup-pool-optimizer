@@ -82,23 +82,33 @@ Go to **Matches → Import Schedule**. You have two options:
 
 ### 2. Set up scoring rules
 
-Go to **Scoring Rules**. If no pool configuration exists yet, click **Create default
-configuration** — it is created pre-loaded with the standard World Cup scoring rules.
-Toggle rules on/off, edit point values (changes are queued; click **Save Changes** to
-apply), or use **Reset to Defaults** at any time.
+Go to **Scoring Rules**. The app ships with four ready-made presets (see below). Pick one
+from the dropdown to edit it: rename it, toggle components on/off, edit point values
+(point edits are queued; click **Save Changes** to apply), or use **Reset to Defaults**.
+**New ruleset** creates one from the full component catalog; **Save as copy** keeps the
+current one and starts a separate copy.
 
-**Presets.** Each scoring system is a named *preset*. Instead of overwriting the one
-you are editing, use **Save as new preset** to keep the current rules and settings as a
-separate copy. Switch between presets with the dropdown, mark one **Set Active** (the
-active preset is the one the optimizer uses), or **Delete** ones you no longer need.
+**The scoring model.** A ruleset is a catalog of toggleable **components** (exact score,
+correct result, goal difference, a team's goals, total goals, …). For each phase (group
+and knockout) you choose a **combine mode**:
 
-**Scoring mode.** A preset can use one of two modes:
+- **Best match** — only the single highest-value matching component is awarded per match
+  (a tiered ladder).
+- **Additive** — every matching component is summed (e.g. 3 for the result + 1 for the
+  total goals), with an optional per-match **cap**.
 
-- **Standard** — the highest-value applicable rule from the table is awarded per match.
-- **Binary** — a prediction earns *result points* for a correct outcome (home win, draw
-  or away win) **plus** *total-goals points* for the correct total goals (home + away),
-  awarded independently (so 0, 1 or 2 categories per match). Both point values default to
-  1 and are editable. The rule table is ignored in binary mode.
+Knockouts add two progression bonuses that are summed on top: **Correct team advances**
+and **Correct penalty-shootout winner** (the latter only for predicted draws). Each phase
+also has a **knockout scoring basis** (90 minutes / + extra time / + penalties) that
+controls the time scope, plus an informational **pick-lock** field. Hover the ⓘ next to
+any component to see exactly what it means with a worked example.
+
+**Seeded presets.** Four real-world pools are pre-loaded and fully editable: *Trivia
+Mundialista* (additive: result 3 + total 1; knockouts add who-advances, capped at 6),
+*Scores & Rules App* (best: exact 5 / goal-difference-or-draw 3 / winner 2, 90′ only),
+*Qini 2026* (best: exact 3 / result 1), and *World Cup 2026* (best: exact 6 / result +
+a team's goals 4 / result 3 / a team's goals 1, with a knockout penalty-winner bonus).
+None is active by default — you always select which ruleset to run on the Optimizer page.
 
 ### 3. Refresh odds (manual)
 
@@ -252,35 +262,34 @@ default is `v1`. See `.env.example` for all V2 flags and
 `docs/` / the spec for details. The Diagnostics page shows a model-quality
 panel and a market-constraint fit table for v2 runs.
 
-## Scoring Rules (Configurable)
+## Scoring Components (Configurable)
 
-| Code | Default Points | Description |
-|---|---:|---|
-| `exact_score` | 10 | Both goals match exactly |
-| `correct_winner_goal_difference` | 6 | Same winner + same goal difference |
-| `correct_winner_winner_goals` | 5 | Same winner + winning team's goals match |
-| `correct_winner_any_team_goals` | 4 | Same winner + any team's goals match (winner or loser) |
-| `correct_winner_only` | 3 | Same winner but wrong goals for both teams (neither team's goals match) |
-| `correct_winner_basic_a` | 3 | Same winner, different goal difference |
-| `correct_winner_basic_b` | 3 | Same winner, different winning-team goals |
-| `correct_draw` | 4 | Both predict draw, not exact score |
-| `wrong_result_team_goal` | 1 | Wrong result but one team's goals match |
-| `wrong_result` | 0 | Catch-all |
+Every ruleset is built from one catalog of components. Each is toggleable with an editable
+point value; how they combine per phase is set by the **combine mode** (`best` or
+`additive`) and an optional per-match cap. The component catalog and the seeded presets
+live in `backend/app/core/defaults.py`.
 
-Rules can be enabled/disabled and point values are editable in the UI.
+**Per-match score components** (both phases):
 
-### Binary scoring mode
+| Code | Awarded when |
+|---|---|
+| `exact_score` | The full predicted score matches exactly (covers exact draws) |
+| `goal_difference` | Correct result and correct goal difference, not exact (a predicted draw counts) |
+| `outcome_team_goals` | Correct (decisive) winner and at least one team's goals, not exact |
+| `correct_outcome` | Correct result — home win / draw / away win |
+| `team_goals` | At least one team's exact goal count matches (regardless of winner) |
+| `total_goals` | Correct total goals; with `config.bucket_cap` set, totals ≥ cap share one bucket (e.g. 4+) |
 
-As an alternative to the rule table above, a preset can be switched to **binary** mode,
-which scores each match in two independent parts:
+**Knockout-only progression bonuses** (summed on top, before the cap):
 
-| Component | Default Points | Awarded when |
-|---|---:|---|
-| Correct result | 1 | Predicted outcome (home win / draw / away win) matches |
-| Correct total goals | 1 | Predicted total goals (home + away) match |
+| Code | Awarded when |
+|---|---|
+| `advance` | The team the prediction sends through (predicted winner, or the penalty pick for a draw) advances |
+| `penalty_winner` | A draw was predicted and the penalty-shootout pick wins (a predicted win earns nothing here) |
 
-The two components are independent, so a match scores 0, 1 or 2 (with the default point
-values). Both point values are configurable per preset.
+Components, point values, combine modes, caps, the knockout scoring basis and the ruleset
+name are all editable in the UI. The four seeded presets (see "Set up scoring rules"
+above) are concrete examples assembled from this catalog.
 
 ## Deployment on Coolify / VPS
 

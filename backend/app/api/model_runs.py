@@ -98,9 +98,10 @@ def _compute_all_fits(
     match_inputs_by_id: dict[uuid.UUID, dict],
     rules: list[SvcScoringRule],
     candidate_max: int,
-    scoring_mode: str,
-    binary_result_points: float,
-    binary_total_goals_points: float,
+    group_combine_mode: str,
+    knockout_combine_mode: str,
+    group_cap: Optional[float],
+    knockout_cap: Optional[float],
     model_version: str,
 ) -> tuple[dict[uuid.UUID, tuple], dict[uuid.UUID, str]]:
     """CPU-bound: fit all models and compute recommendations. Runs in a thread.
@@ -129,13 +130,14 @@ def _compute_all_fits(
                 enable_asian_lines=settings.ENABLE_ASIAN_LINE_SUPPORT,
                 v1_fallback_enabled=settings.V1_FALLBACK_ENABLED,
             )
+            combine_mode = knockout_combine_mode if phase == "knockout" else group_combine_mode
+            cap = knockout_cap if phase == "knockout" else group_cap
             recs = compute_expected_points(
                 fit,
                 rules,
                 candidate_max,
-                scoring_mode=scoring_mode,
-                binary_result_points=binary_result_points,
-                binary_total_goals_points=binary_total_goals_points,
+                combine_mode=combine_mode,
+                cap=cap,
                 phase=phase,
                 knockout_extras=extras,
             )
@@ -171,6 +173,7 @@ async def create_model_run(
             enabled=r.enabled,
             display_specificity_rank=r.display_specificity_rank,
             phase=getattr(r, "phase", "group"),
+            config=r.config,
         )
         for r in pool_config.scoring_rules
     ]
@@ -274,11 +277,16 @@ async def create_model_run(
         )
         stage = (match.stage or "group").lower()
         phase = "group" if stage == "group" else "knockout"
+        # The pool's rules define the knockout time scope; the group phase is
+        # always scored at 90 minutes.
+        scoring_basis = (
+            pool_config.knockout_scoring_basis if phase == "knockout" else "ninety_minutes"
+        )
         match_inputs_by_id[match.id] = {
             "market_probs": mp,
             "bookmaker_markets": bk_markets,
             "fundamental": fundamental,
-            "scoring_basis": match.scoring_basis or "ninety_minutes",
+            "scoring_basis": scoring_basis,
             "phase": phase,
         }
 
@@ -296,9 +304,10 @@ async def create_model_run(
         match_inputs_by_id,
         rules,
         candidate_max,
-        pool_config.scoring_mode,
-        float(pool_config.binary_result_points),
-        float(pool_config.binary_total_goals_points),
+        pool_config.group_combine_mode,
+        pool_config.knockout_combine_mode,
+        float(pool_config.group_cap) if pool_config.group_cap is not None else None,
+        float(pool_config.knockout_cap) if pool_config.knockout_cap is not None else None,
         model_version,
     )
 

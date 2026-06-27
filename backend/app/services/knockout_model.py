@@ -4,8 +4,8 @@ The core Dixon-Coles / entropy-calibrated model produces a 90-minute score
 matrix.  For matches that can go to extra time and/or penalties this module
 derives the supplementary probabilities needed to:
 
-  1. Estimate the expected value of the KO-specific scoring rules
-     (knockout_tie_to_penalties, knockout_penalties_winner).
+  1. Estimate the expected value of the KO progression bonuses
+     (advance, penalty_winner).
   2. Recommend whether to pick home or away as the penalty-shootout winner.
 
 The 90-minute model is unchanged; this runs as a post-processing step.

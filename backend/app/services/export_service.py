@@ -291,11 +291,13 @@ def build_excel(
         ws_params.append(["pool_config_name", pool_config.name])
         ws_params.append(["candidate_max_goals", pool_config.candidate_max_goals])
         ws_params.append(["ranking_metric", pool_config.ranking_metric])
-        scoring_mode = getattr(pool_config, "scoring_mode", "standard")
-        ws_params.append(["scoring_mode", scoring_mode])
-        if scoring_mode == "binary":
-            ws_params.append(["binary_result_points", float(pool_config.binary_result_points)])
-            ws_params.append(["binary_total_goals_points", float(pool_config.binary_total_goals_points)])
+        ws_params.append(["group_combine_mode", getattr(pool_config, "group_combine_mode", "best")])
+        ws_params.append(["knockout_combine_mode", getattr(pool_config, "knockout_combine_mode", "best")])
+        if pool_config.group_cap is not None:
+            ws_params.append(["group_cap", float(pool_config.group_cap)])
+        if pool_config.knockout_cap is not None:
+            ws_params.append(["knockout_cap", float(pool_config.knockout_cap)])
+        ws_params.append(["knockout_scoring_basis", getattr(pool_config, "knockout_scoring_basis", "ninety_minutes")])
 
     _auto_width(ws_params)
 

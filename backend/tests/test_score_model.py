@@ -69,14 +69,11 @@ def sample_market_h2h_only() -> MarketProbabilities:
 
 def sample_rules() -> list[ScoringRule]:
     return [
-        ScoringRule("exact_score", "Exact", 10.0, True, 1),
-        ScoringRule("correct_winner_goal_difference", "GD", 6.0, True, 2),
-        ScoringRule("correct_winner_winner_goals", "WG", 5.0, True, 3),
-        ScoringRule("correct_winner_basic_a", "Basic A", 3.0, True, 4),
-        ScoringRule("correct_winner_basic_b", "Basic B", 3.0, True, 5),
-        ScoringRule("correct_draw", "Draw", 4.0, True, 6),
-        ScoringRule("wrong_result_team_goal", "Wrong+goal", 1.0, True, 7),
-        ScoringRule("wrong_result", "Wrong", 0.0, True, 8),
+        ScoringRule("exact_score", "Exact", 6.0, True, 1),
+        ScoringRule("goal_difference", "GD", 4.0, True, 2),
+        ScoringRule("outcome_team_goals", "Result + team goals", 3.0, True, 3),
+        ScoringRule("correct_outcome", "Result", 2.0, True, 4),
+        ScoringRule("team_goals", "Team goals", 1.0, True, 5),
     ]
 
 

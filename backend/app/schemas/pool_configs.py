@@ -17,6 +17,8 @@ class ScoringRuleOut(BaseModel):
     enabled: bool
     display_specificity_rank: int
     phase: str = "group"
+    example: Optional[str] = None
+    config: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
 
@@ -29,6 +31,8 @@ class ScoringRuleCreate(BaseModel):
     enabled: bool = True
     display_specificity_rank: int
     phase: str = "group"
+    example: Optional[str] = None
+    config: Optional[dict] = None
 
 
 class ScoringRuleUpsert(BaseModel):
@@ -39,15 +43,28 @@ class ScoringRuleUpsert(BaseModel):
     enabled: bool = True
     display_specificity_rank: int
     phase: str = "group"
+    example: Optional[str] = None
+    config: Optional[dict] = None
 
 
 class ScoringRulePatch(BaseModel):
-    """Partial update for a single scoring rule (points and/or enabled)."""
+    """Partial update for a single scoring rule (points, enabled and/or config)."""
     points: Optional[float] = None
     enabled: Optional[bool] = None
+    config: Optional[dict] = None
 
 
-class PoolConfigOut(BaseModel):
+# Fields shared by the pool-config schemas. Combine modes are "best" | "additive".
+class _PoolConfigBase(BaseModel):
+    group_combine_mode: str = "best"
+    knockout_combine_mode: str = "best"
+    group_cap: Optional[float] = None
+    knockout_cap: Optional[float] = None
+    knockout_scoring_basis: str = "ninety_minutes"
+    pick_lock_minutes_before: Optional[int] = None
+
+
+class PoolConfigOut(_PoolConfigBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -57,26 +74,20 @@ class PoolConfigOut(BaseModel):
     candidate_max_goals: int
     ranking_metric: str
     margin_removal_method: str
-    scoring_mode: str = "standard"
-    binary_result_points: float = 1.0
-    binary_total_goals_points: float = 1.0
     active: bool
     created_at: datetime
     updated_at: datetime
     scoring_rules: list[ScoringRuleOut] = []
 
 
-class PoolConfigCreate(BaseModel):
+class PoolConfigCreate(_PoolConfigBase):
     name: str
     description: Optional[str] = None
     default_top_n: int = 3
     candidate_max_goals: int = 5
     ranking_metric: str = "expected_points"
     margin_removal_method: str = "proportional"
-    scoring_mode: str = "standard"
-    binary_result_points: float = 1.0
-    binary_total_goals_points: float = 1.0
-    active: bool = True
+    active: bool = False
 
 
 class PoolConfigUpdate(BaseModel):
@@ -86,9 +97,12 @@ class PoolConfigUpdate(BaseModel):
     candidate_max_goals: Optional[int] = None
     ranking_metric: Optional[str] = None
     margin_removal_method: Optional[str] = None
-    scoring_mode: Optional[str] = None
-    binary_result_points: Optional[float] = None
-    binary_total_goals_points: Optional[float] = None
+    group_combine_mode: Optional[str] = None
+    knockout_combine_mode: Optional[str] = None
+    group_cap: Optional[float] = None
+    knockout_cap: Optional[float] = None
+    knockout_scoring_basis: Optional[str] = None
+    pick_lock_minutes_before: Optional[int] = None
     active: Optional[bool] = None
 
 

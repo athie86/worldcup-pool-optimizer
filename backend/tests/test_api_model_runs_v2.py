@@ -75,10 +75,9 @@ async def _seed_match_with_odds(session) -> tuple[uuid.UUID, uuid.UUID, uuid.UUI
     session.add(pool)
     await session.flush()
     rules = [
-        ("exact_score", "Exact", 10.0, 1),
-        ("correct_winner_basic_a", "CW", 3.0, 4),
-        ("correct_draw", "Draw", 4.0, 6),
-        ("wrong_result", "WR", 0.0, 8),
+        ("exact_score", "Exact", 6.0, 1),
+        ("correct_outcome", "Result", 3.0, 4),
+        ("total_goals", "Total", 1.0, 6),
     ]
     for code, label, pts, rank in rules:
         session.add(models.ScoringRule(pool_config_id=pool.id, code=code, label=label,

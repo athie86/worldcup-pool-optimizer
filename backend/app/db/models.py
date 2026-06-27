@@ -72,14 +72,23 @@ class PoolConfig(Base):
     candidate_max_goals: Mapped[int] = mapped_column(Integer, default=5)
     ranking_metric: Mapped[str] = mapped_column(Text, default="expected_points")
     margin_removal_method: Mapped[str] = mapped_column(Text, default="proportional")
-    # Scoring mode: "standard" uses the configurable scoring_rules table (highest
-    # applicable rule wins); "binary" awards binary_result_points for a correct
-    # result (home win / draw / away win) plus binary_total_goals_points for the
-    # correct total goals (home + away), independently.
-    scoring_mode: Mapped[str] = mapped_column(Text, default="standard", server_default=text("'standard'"))
-    binary_result_points: Mapped[float] = mapped_column(Numeric(8, 3), default=1.0, server_default=text("1"))
-    binary_total_goals_points: Mapped[float] = mapped_column(Numeric(8, 3), default=1.0, server_default=text("1"))
-    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Scoring combine mode, per phase: "best" awards the single highest-value
+    # matching component; "additive" sums every matching component. The optional
+    # cap clamps the per-match total (null = no cap). Knockout progression
+    # bonuses (advance / penalty_winner) are summed on top before the cap.
+    group_combine_mode: Mapped[str] = mapped_column(Text, default="best", server_default=text("'best'"))
+    knockout_combine_mode: Mapped[str] = mapped_column(Text, default="best", server_default=text("'best'"))
+    group_cap: Mapped[Optional[float]] = mapped_column(Numeric(8, 3), nullable=True)
+    knockout_cap: Mapped[Optional[float]] = mapped_column(Numeric(8, 3), nullable=True)
+    # Time scope the pool scores knockouts on (group is always 90 minutes).
+    # Drives the optimizer's basis and whether the KO progression bonuses apply.
+    knockout_scoring_basis: Mapped[str] = mapped_column(
+        Text, default="ninety_minutes", server_default=text("'ninety_minutes'")
+    )
+    # Informational only (not enforced by the optimizer): how long before kickoff
+    # picks lock in this pool. Null = unspecified.
+    pick_lock_minutes_before: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -102,6 +111,11 @@ class ScoringRule(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     display_specificity_rank: Mapped[int] = mapped_column(Integer)
     phase: Mapped[str] = mapped_column(Text, nullable=False, default="group", server_default=text("'group'"))
+    # Worked example shown in the UI (Example column + tooltip).
+    example: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Component-specific options, e.g. {"bucket_cap": 4} for total_goals or
+    # {"which": "any"} for team-goals components. Null = component defaults.
+    config: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

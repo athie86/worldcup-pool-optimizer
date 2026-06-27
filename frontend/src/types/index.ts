@@ -41,9 +41,16 @@ export interface ScoringRule {
   enabled: boolean;
   display_specificity_rank: number;
   phase: string;
+  example?: string;
+  config?: Record<string, unknown> | null;
 }
 
-export type ScoringMode = 'standard' | 'binary';
+export type CombineMode = 'best' | 'additive';
+
+export type KnockoutScoringBasis =
+  | 'ninety_minutes'
+  | 'ninety_minutes_extra_time'
+  | 'ninety_minutes_extra_time_penalties';
 
 export interface PoolConfig {
   id: string;
@@ -53,9 +60,12 @@ export interface PoolConfig {
   candidate_max_goals: number;
   ranking_metric: string;
   margin_removal_method: string;
-  scoring_mode: ScoringMode;
-  binary_result_points: number;
-  binary_total_goals_points: number;
+  group_combine_mode: CombineMode;
+  knockout_combine_mode: CombineMode;
+  group_cap?: number | null;
+  knockout_cap?: number | null;
+  knockout_scoring_basis: KnockoutScoringBasis;
+  pick_lock_minutes_before?: number | null;
   active: boolean;
   scoring_rules?: ScoringRule[];
 }

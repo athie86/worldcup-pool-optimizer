@@ -166,8 +166,8 @@ def test_registry_v1_failure_falls_back_to_neutral():
 
 def test_optimizer_candidate_grid_independent_of_actual_grid():
     r = fit_market_score_model_v2(full_market())
-    rules = [ScoringRule("exact_score", "Exact", 10.0, True, 1),
-             ScoringRule("wrong_result", "WR", 0.0, True, 8)]
+    rules = [ScoringRule("exact_score", "Exact", 6.0, True, 1),
+             ScoringRule("correct_outcome", "Result", 2.0, True, 4)]
     recs = compute_expected_points(r, rules, candidate_max=5)
     assert len(recs) == 36  # 6x6 candidates regardless of 13x13 actual grid
 

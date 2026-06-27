@@ -140,7 +140,7 @@ export default function OptimizerPage() {
           >
             {configs?.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} · {c.scoring_mode === 'binary' ? 'Binary' : 'Standard'}
+                {c.name}
                 {c.active ? ' · active' : ''}
               </option>
             ))}
@@ -215,19 +215,16 @@ export default function OptimizerPage() {
         )}
       </div>
 
-      {/* What will run — makes the ruleset/scoring-type connection explicit */}
+      {/* What will run — makes the ruleset/combine-mode connection explicit */}
       {selectedConfig && (
         <div className="card px-4 py-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
           <span className="text-slate-400">Will run:</span>
           <span className="font-semibold text-slate-800">{selectedConfig.name}</span>
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-              selectedConfig.scoring_mode === 'binary'
-                ? 'bg-violet-100 text-violet-700'
-                : 'bg-sky-100 text-sky-700'
-            }`}
-          >
-            {selectedConfig.scoring_mode === 'binary' ? 'Binary scoring' : 'Standard scoring'}
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-700">
+            Group: {selectedConfig.group_combine_mode === 'additive' ? 'Additive' : 'Best match'}
+          </span>
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-violet-100 text-violet-700">
+            Knockout: {selectedConfig.knockout_combine_mode === 'additive' ? 'Additive' : 'Best match'}
           </span>
           {selectedConfig.active && (
             <span className="text-xs text-emerald-600 font-medium">active</span>

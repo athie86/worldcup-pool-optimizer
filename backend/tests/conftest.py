@@ -7,18 +7,14 @@ from app.services.scoring import ScoringRule
 
 @pytest.fixture
 def default_rules() -> list[ScoringRule]:
-    """Standard World Cup scoring rules."""
+    """A best-match scoring ladder using the unified component catalog."""
     return [
-        ScoringRule(code="exact_score", label="Exact Score", points=10.0, enabled=True, display_specificity_rank=1),
-        ScoringRule(code="correct_winner_goal_difference", label="Correct Winner + GD", points=6.0, enabled=True, display_specificity_rank=2),
-        ScoringRule(code="correct_winner_winner_goals", label="Correct Winner + WG", points=5.0, enabled=True, display_specificity_rank=3),
-        ScoringRule(code="correct_winner_any_team_goals", label="Correct Winner + Any Team Goals", points=4.0, enabled=True, display_specificity_rank=4),
-        ScoringRule(code="correct_winner_only", label="Correct Winner Only", points=3.0, enabled=True, display_specificity_rank=5),
-        ScoringRule(code="correct_winner_basic_a", label="Correct Winner (A)", points=3.0, enabled=True, display_specificity_rank=6),
-        ScoringRule(code="correct_winner_basic_b", label="Correct Winner (B)", points=3.0, enabled=True, display_specificity_rank=7),
-        ScoringRule(code="correct_draw", label="Correct Draw", points=4.0, enabled=True, display_specificity_rank=8),
-        ScoringRule(code="wrong_result_team_goal", label="Wrong Result, Team Goal", points=1.0, enabled=True, display_specificity_rank=9),
-        ScoringRule(code="wrong_result", label="Wrong Result", points=0.0, enabled=True, display_specificity_rank=10),
+        ScoringRule(code="exact_score", label="Exact score", points=6.0, enabled=True, display_specificity_rank=1),
+        ScoringRule(code="goal_difference", label="Result + goal difference", points=4.0, enabled=True, display_specificity_rank=2),
+        ScoringRule(code="outcome_team_goals", label="Result + a team's goals", points=3.0, enabled=True, display_specificity_rank=3),
+        ScoringRule(code="correct_outcome", label="Correct result", points=2.0, enabled=True, display_specificity_rank=4),
+        ScoringRule(code="team_goals", label="A team's goals", points=1.0, enabled=True, display_specificity_rank=5),
+        ScoringRule(code="total_goals", label="Correct total goals", points=1.0, enabled=False, display_specificity_rank=6),
     ]
 
 

@@ -16,12 +16,16 @@ def make_mock_run():
     pool_config.name = "Test Pool"
     pool_config.candidate_max_goals = 5
     pool_config.ranking_metric = "expected_points"
-    pool_config.scoring_mode = "standard"
+    pool_config.group_combine_mode = "best"
+    pool_config.knockout_combine_mode = "best"
+    pool_config.group_cap = None
+    pool_config.knockout_cap = None
+    pool_config.knockout_scoring_basis = "ninety_minutes"
 
     rule1 = MagicMock()
     rule1.code = "exact_score"
-    rule1.label = "Exact Score"
-    rule1.points = 10.0
+    rule1.label = "Exact score"
+    rule1.points = 6.0
     rule1.enabled = True
     rule1.display_specificity_rank = 1
     rule1.description = "Exact score"

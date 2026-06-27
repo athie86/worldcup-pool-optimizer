@@ -1,5 +1,23 @@
-from dataclasses import dataclass, field
+"""Pool scoring engine.
+
+A scoring system is a set of toggleable **components**, each a clear predicate
+with a point value, combined per phase either by ``best`` (highest matching
+component wins) or ``additive`` (every matching component sums), with an optional
+per-match cap. Knockout adds two progression bonuses (``advance`` /
+``penalty_winner``) that are summed on top of the phase score before the cap.
+
+See ``app.core.defaults`` for the component catalog and the seeded presets.
+"""
+from dataclasses import dataclass
 from typing import Optional
+
+
+COMBINE_BEST = "best"
+COMBINE_ADDITIVE = "additive"
+
+# Components that are knockout-only progression bonuses (summed on top, never
+# part of the best/additive combine over the per-match score components).
+KNOCKOUT_BONUS_CODES = frozenset({"advance", "penalty_winner"})
 
 
 @dataclass
@@ -10,6 +28,7 @@ class ScoringRule:
     enabled: bool
     display_specificity_rank: int
     phase: str = "group"
+    config: Optional[dict] = None
 
 
 def result(home: int, away: int) -> str:
@@ -33,98 +52,83 @@ def winner_goals(home: int, away: int) -> Optional[int]:
     return None
 
 
-def applies(rule_code: str, ph: int, pa: int, ah: int, aa: int, **kwargs) -> bool:
-    """Check if a scoring rule applies given prediction (ph,pa) and actual (ah,aa).
+def _bucket(total: int, cap: Optional[int]) -> int:
+    """Bucket a goal total: everything >= cap collapses into one bucket."""
+    if cap is not None and total >= cap:
+        return cap
+    return total
 
-    Keyword args for knockout-specific rules:
+
+def applies(
+    rule_code: str,
+    ph: int,
+    pa: int,
+    ah: int,
+    aa: int,
+    *,
+    config: Optional[dict] = None,
+    **kwargs,
+) -> bool:
+    """Check whether a scoring component applies for prediction (ph,pa) vs actual (ah,aa).
+
+    Keyword args for knockout progression bonuses:
       went_to_penalties (bool): whether the match was decided in a shootout
-      predicted_penalties_winner (str|None): "home" or "away" — optimizer's pick
-      optimal_penalties_winner (str|None): "home" or "away" — the higher-prob side
+      predicted_advancer (str|None): "home"/"away" — team the prediction sends through
+      actual_advancer (str|None): "home"/"away" — team that actually advanced
+      predicted_penalties_winner (str|None): "home"/"away" — draw prediction's pen pick
     """
+    config = config or {}
     pred_result = result(ph, pa)
     actual_result = result(ah, aa)
     is_exact = (ph == ah and pa == aa)
+    team_goal_match = (ph == ah or pa == aa)
 
+    # ── Per-match score components ──────────────────────────────────────────
     if rule_code == "exact_score":
         return is_exact
 
-    elif rule_code == "correct_winner_goal_difference":
+    elif rule_code == "goal_difference":
         return (
             pred_result == actual_result
-            and pred_result != "draw"
             and goal_difference(ph, pa) == goal_difference(ah, aa)
             and not is_exact
         )
 
-    elif rule_code == "correct_winner_winner_goals":
+    elif rule_code == "outcome_team_goals":
         return (
             pred_result == actual_result
             and pred_result != "draw"
-            and winner_goals(ph, pa) == winner_goals(ah, aa)
+            and team_goal_match
             and not is_exact
         )
 
-    elif rule_code == "correct_winner_any_team_goals":
-        return (
-            pred_result == actual_result
-            and pred_result != "draw"
-            and (ph == ah or pa == aa)
-            and not is_exact
-        )
+    elif rule_code == "correct_outcome":
+        return pred_result == actual_result
 
-    elif rule_code == "correct_winner_only":
-        return (
-            pred_result == actual_result
-            and pred_result != "draw"
-            and ph != ah
-            and pa != aa
-        )
+    elif rule_code == "team_goals":
+        return team_goal_match
 
-    elif rule_code == "correct_winner_basic_a":
-        return (
-            pred_result == actual_result
-            and pred_result != "draw"
-            and not is_exact
-            and goal_difference(ph, pa) != goal_difference(ah, aa)
-        )
+    elif rule_code == "total_goals":
+        cap = config.get("bucket_cap")
+        cap = int(cap) if cap is not None else None
+        return _bucket(ph + pa, cap) == _bucket(ah + aa, cap)
 
-    elif rule_code == "correct_winner_basic_b":
-        return (
-            pred_result == actual_result
-            and pred_result != "draw"
-            and not is_exact
-            and winner_goals(ph, pa) != winner_goals(ah, aa)
-        )
+    # ── Knockout progression bonuses ────────────────────────────────────────
+    elif rule_code == "advance":
+        # The team the prediction sends through actually advanced.
+        pred_adv = kwargs.get("predicted_advancer")
+        actual_adv = kwargs.get("actual_advancer")
+        return pred_adv is not None and actual_adv is not None and pred_adv == actual_adv
 
-    elif rule_code == "correct_draw":
-        return (
-            pred_result == "draw"
-            and actual_result == "draw"
-            and not is_exact
-        )
-
-    elif rule_code == "wrong_result_team_goal":
-        return (
-            pred_result != actual_result
-            and (ph == ah or pa == aa)
-        )
-
-    elif rule_code == "wrong_result":
-        return True  # catch-all, always applies
-
-    # ── Knockout-specific rules ─────────────────────────────────────────────
-    elif rule_code == "knockout_tie_to_penalties":
-        # Predicted draw AND the match actually went to a penalty shootout.
-        return (
-            pred_result == "draw"
-            and kwargs.get("went_to_penalties", False)
-        )
-
-    elif rule_code == "knockout_penalties_winner":
-        # Predicted penalty winner matches the optimal (higher-probability) side.
+    elif rule_code == "penalty_winner":
+        # Only predicted draws can earn this: the penalty pick won the shootout.
+        if pred_result != "draw":
+            return False
+        if not kwargs.get("went_to_penalties", False):
+            return False
         ppw = kwargs.get("predicted_penalties_winner")
-        opw = kwargs.get("optimal_penalties_winner")
-        return ppw is not None and opw is not None and ppw == opw
+        actual_adv = kwargs.get("actual_advancer")
+        return ppw is not None and actual_adv is not None and ppw == actual_adv
 
     return False
 
@@ -137,58 +141,60 @@ def score_points(
     aa: int,
     *,
     phase: str = "group",
-    went_to_penalties: bool = False,
-    predicted_penalties_winner: Optional[str] = None,
-    optimal_penalties_winner: Optional[str] = None,
+    combine_mode: str = COMBINE_BEST,
+    cap: Optional[float] = None,
+    **kwargs,
 ) -> float:
-    """Return highest applicable enabled rule points for prediction vs actual.
+    """Score a prediction vs an actual result under a phase's combine settings.
 
-    ``phase`` filters rules: only rules with matching phase are evaluated.
-    Knockout kwargs are forwarded to ``applies()`` for the two KO-specific rules.
+    Per-match score components are combined by ``combine_mode`` (``best`` = max,
+    ``additive`` = sum). Knockout progression bonuses (``advance`` /
+    ``penalty_winner``) are always summed on top. The total is clamped to ``cap``.
+
+    Knockout kwargs (``went_to_penalties``, ``predicted_advancer``,
+    ``actual_advancer``, ``predicted_penalties_winner``) are forwarded to
+    ``applies()``.
     """
-    applicable = [
-        rule.points
-        for rule in rules
-        if rule.enabled
-        and rule.phase == phase
-        and applies(
-            rule.code, ph, pa, ah, aa,
-            went_to_penalties=went_to_penalties,
-            predicted_penalties_winner=predicted_penalties_winner,
-            optimal_penalties_winner=optimal_penalties_winner,
-        )
-    ]
-    return max(applicable) if applicable else 0.0
+    score_points_list: list[float] = []
+    bonus_total = 0.0
+
+    for rule in rules:
+        if not rule.enabled or rule.phase != phase:
+            continue
+        if not applies(rule.code, ph, pa, ah, aa, config=rule.config, **kwargs):
+            continue
+        if rule.code in KNOCKOUT_BONUS_CODES:
+            bonus_total += rule.points
+        else:
+            score_points_list.append(rule.points)
+
+    if combine_mode == COMBINE_ADDITIVE:
+        base = sum(score_points_list)
+    else:
+        base = max(score_points_list) if score_points_list else 0.0
+
+    total = base + bonus_total
+    if cap is not None:
+        total = min(total, cap)
+    return total
 
 
-def binary_score_points(
+def get_display_label(
+    rules: list[ScoringRule],
     ph: int,
     pa: int,
     ah: int,
     aa: int,
-    result_points: float = 1.0,
-    total_goals_points: float = 1.0,
-) -> float:
-    """Binary scoring: points for a correct result and/or correct total goals.
-
-    Awards ``result_points`` when the predicted result (home win / draw /
-    away win) matches the actual result, and ``total_goals_points`` when the
-    predicted total goals (home + away) match the actual total. The two
-    components are independent, so a prediction can earn 0, one, or both.
-    """
-    pts = 0.0
-    if result(ph, pa) == result(ah, aa):
-        pts += result_points
-    if (ph + pa) == (ah + aa):
-        pts += total_goals_points
-    return pts
-
-
-def get_display_label(rules: list[ScoringRule], ph: int, pa: int, ah: int, aa: int) -> str:
-    """Return the display label of the most specific applicable rule."""
+    *,
+    phase: str = "group",
+) -> str:
+    """Return the display label of the most specific applicable score component."""
     applicable = [
         rule for rule in rules
-        if rule.enabled and applies(rule.code, ph, pa, ah, aa)
+        if rule.enabled
+        and rule.phase == phase
+        and rule.code not in KNOCKOUT_BONUS_CODES
+        and applies(rule.code, ph, pa, ah, aa, config=rule.config)
     ]
     if not applicable:
         return "No points"

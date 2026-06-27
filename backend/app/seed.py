@@ -15,10 +15,10 @@ from .services.score_model import fit_score_model, MarketProbabilities
 from .services.optimizer import compute_expected_points
 from .services.odds_normalization import compute_consensus, BookmakerMarket, RawOutcome
 from .core.logging import logger
-from .core.defaults import DEFAULT_SCORING_RULES
+from .core.defaults import SEED_PRESETS, build_preset_rules
 
-
-SCORING_RULES_SEED = DEFAULT_SCORING_RULES
+# Preset whose combine settings drive the demo optimizer run at the end of seeding.
+_DEMO_PRESET_NAME = "World Cup 2026"
 
 TEAMS_SEED = [
     {"fifa_code": "ESP", "name": "Spain", "short_name": "ESP", "flag_emoji": "🇪🇸", "group_label": "A"},
@@ -90,29 +90,34 @@ async def seed():
 
         await db.flush()
 
-        # 3. Pool config + scoring rules
-        pc_result = await db.execute(
-            select(models.PoolConfig).where(models.PoolConfig.name == "World Cup 2026")
-        )
-        pool_config = pc_result.scalar_one_or_none()
-        if not pool_config:
+        # 3. Pool configs (one per seeded preset) + scoring rules. None is active
+        # by default — the user always selects a ruleset on the Optimizer page.
+        for preset in SEED_PRESETS:
+            pc_result = await db.execute(
+                select(models.PoolConfig).where(models.PoolConfig.name == preset["name"])
+            )
+            if pc_result.scalar_one_or_none():
+                continue
             pool_config = models.PoolConfig(
-                name="World Cup 2026",
-                description="Default pool configuration for FIFA World Cup 2026",
+                name=preset["name"],
+                description=preset.get("description"),
                 default_top_n=3,
                 candidate_max_goals=5,
                 ranking_metric="expected_points",
                 margin_removal_method="proportional",
-                active=True,
+                group_combine_mode=preset["group_combine_mode"],
+                knockout_combine_mode=preset["knockout_combine_mode"],
+                group_cap=preset["group_cap"],
+                knockout_cap=preset["knockout_cap"],
+                knockout_scoring_basis=preset["knockout_scoring_basis"],
+                pick_lock_minutes_before=preset["pick_lock_minutes_before"],
+                active=False,
             )
             db.add(pool_config)
             await db.flush()
+            for rule_data in build_preset_rules(preset):
+                db.add(models.ScoringRule(pool_config_id=pool_config.id, **rule_data))
             print(f"Created pool config: {pool_config.name}")
-
-            for rule_data in SCORING_RULES_SEED:
-                rule = models.ScoringRule(pool_config_id=pool_config.id, **rule_data)
-                db.add(rule)
-            print("Created scoring rules")
 
         await db.flush()
 
@@ -270,11 +275,11 @@ async def seed():
         # 7. Run optimizer
         print("\nRunning optimizer...")
 
-        # Reload pool config with rules
+        # Reload the demo pool config with rules
         pc_result = await db.execute(
             select(models.PoolConfig)
             .options(selectinload(models.PoolConfig.scoring_rules))
-            .where(models.PoolConfig.name == "World Cup 2026")
+            .where(models.PoolConfig.name == _DEMO_PRESET_NAME)
         )
         pool_config = pc_result.scalar_one_or_none()
 
@@ -285,6 +290,8 @@ async def seed():
                 points=float(r.points),
                 enabled=r.enabled,
                 display_specificity_rank=r.display_specificity_rank,
+                phase=r.phase,
+                config=r.config,
             )
             for r in pool_config.scoring_rules
         ]
@@ -397,9 +404,9 @@ async def seed():
                 fit,
                 rules,
                 pool_config.candidate_max_goals,
-                scoring_mode=pool_config.scoring_mode,
-                binary_result_points=float(pool_config.binary_result_points),
-                binary_total_goals_points=float(pool_config.binary_total_goals_points),
+                combine_mode=pool_config.group_combine_mode,
+                cap=float(pool_config.group_cap) if pool_config.group_cap is not None else None,
+                phase="group",
             )
             for rec in recs:
                 sr = models.ScoreRecommendation(

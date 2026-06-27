@@ -110,9 +110,12 @@ async def duplicate_pool_config(
         candidate_max_goals=source.candidate_max_goals,
         ranking_metric=source.ranking_metric,
         margin_removal_method=source.margin_removal_method,
-        scoring_mode=source.scoring_mode,
-        binary_result_points=source.binary_result_points,
-        binary_total_goals_points=source.binary_total_goals_points,
+        group_combine_mode=source.group_combine_mode,
+        knockout_combine_mode=source.knockout_combine_mode,
+        group_cap=source.group_cap,
+        knockout_cap=source.knockout_cap,
+        knockout_scoring_basis=source.knockout_scoring_basis,
+        pick_lock_minutes_before=source.pick_lock_minutes_before,
         active=body.active,
     )
     db.add(new_config)
@@ -128,6 +131,8 @@ async def duplicate_pool_config(
             enabled=rule.enabled,
             display_specificity_rank=rule.display_specificity_rank,
             phase=rule.phase,
+            example=rule.example,
+            config=rule.config,
         ))
 
     if body.active:
@@ -205,20 +210,9 @@ async def delete_pool_config(
     if not config:
         raise HTTPException(status_code=404, detail="Pool config not found")
 
-    was_active = config.active
+    # Zero active configs is allowed — the user always selects a ruleset on the
+    # Optimizer page, so we do not auto-promote a replacement.
     await db.delete(config)
-    await db.flush()
-
-    # If we removed the active config, promote the oldest remaining one so the
-    # app always has an active configuration to run against.
-    if was_active:
-        remaining = await db.execute(
-            select(models.PoolConfig).order_by(models.PoolConfig.created_at.asc()).limit(1)
-        )
-        next_config = remaining.scalar_one_or_none()
-        if next_config:
-            next_config.active = True
-
     await db.commit()
 
 

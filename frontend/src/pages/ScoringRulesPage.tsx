@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Save,
@@ -9,26 +9,47 @@ import {
   Trash2,
   CheckCircle2,
   ListChecks,
-  Layers,
 } from 'lucide-react';
 import { poolConfigsApi } from '../api/poolConfigs';
 import { EditableScoringTable } from '../components/EditableScoringTable';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToastContext } from '../components/Toast';
-import type { ScoringMode, PoolConfig } from '../types';
+import type { CombineMode, KnockoutScoringBasis, PoolConfig } from '../types';
 
-/** Small read-only badge that makes a ruleset's scoring type unmistakable. */
-function ModeBadge({ mode }: { mode: ScoringMode }) {
-  const binary = mode === 'binary';
+const BASIS_LABELS: Record<KnockoutScoringBasis, string> = {
+  ninety_minutes: '90 minutes only (+ stoppage)',
+  ninety_minutes_extra_time: '90 minutes + extra time',
+  ninety_minutes_extra_time_penalties: '90 + extra time + penalties',
+};
+
+/** Best ⟷ Additive segmented control for one phase. */
+function CombineToggle({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: CombineMode;
+  onChange: (v: CombineMode) => void;
+  disabled?: boolean;
+}) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-        binary ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'
-      }`}
-    >
-      {binary ? <Layers className="w-3 h-3" /> : <ListChecks className="w-3 h-3" />}
-      {binary ? 'Binary' : 'Standard'}
-    </span>
+    <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+      {(['best', 'additive'] as CombineMode[]).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          disabled={disabled}
+          className={`px-3 py-1.5 text-xs font-medium ${
+            value === mode
+              ? 'bg-red-700 text-white'
+              : 'bg-white text-slate-600 hover:bg-slate-50'
+          } ${mode === 'additive' ? 'border-l border-slate-200' : ''}`}
+          onClick={() => onChange(mode)}
+        >
+          {mode === 'best' ? 'Best match' : 'Additive'}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -36,17 +57,13 @@ export default function ScoringRulesPage() {
   const { toast } = useToastContext();
   const qc = useQueryClient();
 
-  // The page starts blank: no ruleset is selected until the user picks one.
   const [selectedId, setSelectedId] = useState('');
   const [resetOpen, setResetOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
-  // "New ruleset from scratch" form state.
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newMode, setNewMode] = useState<ScoringMode>('standard');
 
-  // "Save as copy" form state.
   const [duplicating, setDuplicating] = useState(false);
   const [copyName, setCopyName] = useState('');
 
@@ -60,8 +77,6 @@ export default function ScoringRulesPage() {
   });
 
   const currentConfig: PoolConfig | undefined = configs?.find((c) => c.id === selectedId);
-  const scoringMode: ScoringMode = currentConfig?.scoring_mode ?? 'standard';
-  const isBinary = scoringMode === 'binary';
   const hasSelection = !!currentConfig;
 
   const resetTransient = () => {
@@ -78,27 +93,20 @@ export default function ScoringRulesPage() {
   const { data: rules, isLoading: rulesLoading } = useQuery({
     queryKey: ['scoring-rules', selectedId],
     queryFn: () => poolConfigsApi.getScoringRules(selectedId),
-    // Only fetch rules for a selected, standard-mode ruleset. Binary rulesets
-    // ignore the rule table entirely, so there is nothing to load.
-    enabled: hasSelection && !isBinary,
+    enabled: hasSelection,
   });
 
   const createConfig = useMutation({
-    mutationFn: (payload: { name: string; scoring_mode: ScoringMode }) =>
+    mutationFn: (name: string) =>
       poolConfigsApi.create({
-        name: payload.name,
+        name,
         description: 'Created from Scoring Rules',
-        scoring_mode: payload.scoring_mode,
-        // The first-ever ruleset becomes active so the optimizer always has a
-        // default. Additional rulesets must never silently steal "active" from
-        // the one the optimizer currently uses — the user activates them explicitly.
-        active: (configs?.length ?? 0) === 0,
+        active: false,
       }),
     onSuccess: (created) => {
       toast.success(`Ruleset "${created.name}" created`);
       setCreating(false);
       setNewName('');
-      setNewMode('standard');
       selectConfig(created.id);
       qc.invalidateQueries({ queryKey: ['pool-configs'] });
     },
@@ -111,7 +119,7 @@ export default function ScoringRulesPage() {
       payload,
     }: {
       ruleId: string;
-      payload: { points?: number; enabled?: boolean };
+      payload: { points?: number; enabled?: boolean; config?: Record<string, unknown> | null };
     }) => poolConfigsApi.updateScoringRule(selectedId, ruleId, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['scoring-rules', selectedId] });
@@ -139,7 +147,7 @@ export default function ScoringRulesPage() {
   const setActive = useMutation({
     mutationFn: () => poolConfigsApi.setActive(selectedId),
     onSuccess: () => {
-      toast.success('Ruleset set as active — the optimizer will use it by default');
+      toast.success('Ruleset set as active');
       qc.invalidateQueries({ queryKey: ['pool-configs'] });
     },
     onError: (e: Error) => toast.error(`Could not activate: ${e.message}`),
@@ -188,10 +196,13 @@ export default function ScoringRulesPage() {
     }
   };
 
-  const handleChange = (ruleId: string, changes: { points?: number; enabled?: boolean }) => {
-    // Toggles save immediately; point edits batch into "Save Changes".
-    if (changes.enabled !== undefined) {
-      updateRule.mutate({ ruleId, payload: { enabled: changes.enabled } });
+  const handleChange = (
+    ruleId: string,
+    changes: { points?: number; enabled?: boolean; config?: Record<string, unknown> | null }
+  ) => {
+    // Toggles and config edits save immediately; point edits batch into "Save Changes".
+    if (changes.enabled !== undefined || changes.config !== undefined) {
+      updateRule.mutate({ ruleId, payload: changes });
     } else {
       setPendingChanges((prev) => ({
         ...prev,
@@ -206,7 +217,7 @@ export default function ScoringRulesPage() {
       toast.error('Enter a name for the new ruleset');
       return;
     }
-    createConfig.mutate({ name, scoring_mode: newMode });
+    createConfig.mutate(name);
   };
 
   const handleSaveCopy = () => {
@@ -237,14 +248,15 @@ export default function ScoringRulesPage() {
         <Info className="w-5 h-5 text-red-700 shrink-0 mt-0.5" />
         <div className="text-xs text-slate-600 leading-relaxed">
           <p>
-            A <strong>ruleset</strong> bundles a scoring <strong>type</strong> (Standard
-            or Binary) with its point values. The optimizer always runs exactly one
-            ruleset — the one you pick on the Optimizer page (the{' '}
-            <strong>active</strong> ruleset is selected there by default).
+            A <strong>ruleset</strong> defines how predictions earn points. For each phase
+            you choose a <strong>combine mode</strong> — <strong>Best match</strong> (only
+            the single highest-value component scores) or <strong>Additive</strong> (every
+            matching component is summed) — plus an optional per-match cap.
           </p>
           <p className="mt-1">
-            A ruleset's type is fixed when you create it, so Standard and Binary scoring
-            can never get mixed up. To use a different type, create a new ruleset.
+            Pick which ruleset to run on the Optimizer page. Hover the{' '}
+            <Info className="inline w-3 h-3 -mt-0.5" /> next to any component to see exactly
+            what it means with an example.
           </p>
         </div>
       </div>
@@ -262,7 +274,7 @@ export default function ScoringRulesPage() {
             <option value="">— Select a ruleset —</option>
             {configs?.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} · {c.scoring_mode === 'binary' ? 'Binary' : 'Standard'}
+                {c.name}
                 {c.active ? ' · active' : ''}
               </option>
             ))}
@@ -286,7 +298,7 @@ export default function ScoringRulesPage() {
                   className="btn-secondary"
                   onClick={() => setActive.mutate()}
                   disabled={setActive.isPending}
-                  title="Make this the ruleset the optimizer uses by default"
+                  title="Mark this ruleset active"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   Set Active
@@ -303,96 +315,53 @@ export default function ScoringRulesPage() {
                 <Copy className="w-4 h-4" />
                 Save as copy
               </button>
-              {(configs?.length ?? 0) > 1 && (
-                <button
-                  className="btn-secondary text-red-700"
-                  onClick={() => setDeleteOpen(true)}
-                  disabled={deleteConfig.isPending}
-                  title="Delete this ruleset"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete
-                </button>
-              )}
+              <button
+                className="btn-secondary text-red-700"
+                onClick={() => setDeleteOpen(true)}
+                disabled={deleteConfig.isPending}
+                title="Delete this ruleset"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </button>
             </div>
           )}
         </div>
 
         {/* New ruleset from scratch */}
         {creating && (
-          <div className="flex flex-col gap-3 border-t border-slate-100 pt-3">
-            <p className="text-xs font-semibold text-slate-600">Create a new ruleset</p>
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="label">Name</label>
-                <input
-                  className="input text-sm w-64"
-                  placeholder="e.g. Office Pool 2026"
-                  value={newName}
-                  autoFocus
-                  onChange={(e) => setNewName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="label">Scoring type (fixed once created)</label>
-                <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
-                  <button
-                    type="button"
-                    className={`px-3 py-2 text-sm ${
-                      newMode === 'standard'
-                        ? 'bg-red-700 text-white'
-                        : 'bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                    onClick={() => setNewMode('standard')}
-                  >
-                    Standard
-                  </button>
-                  <button
-                    type="button"
-                    className={`px-3 py-2 text-sm border-l border-slate-200 ${
-                      newMode === 'binary'
-                        ? 'bg-red-700 text-white'
-                        : 'bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                    onClick={() => setNewMode('binary')}
-                  >
-                    Binary
-                  </button>
-                </div>
-              </div>
-              <button
-                className="btn-primary"
-                onClick={handleCreate}
-                disabled={createConfig.isPending}
-              >
-                <Plus className="w-4 h-4" />
-                {createConfig.isPending ? 'Creating…' : 'Create ruleset'}
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  setCreating(false);
-                  setNewName('');
-                }}
-              >
-                Cancel
-              </button>
+          <div className="flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
+            <div className="flex flex-col gap-1">
+              <label className="label">Name</label>
+              <input
+                className="input text-sm w-64"
+                placeholder="e.g. Office Pool 2026"
+                value={newName}
+                autoFocus
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              />
             </div>
-            <p className="text-xs text-slate-500">
-              {newMode === 'binary' ? (
-                <>
-                  <strong>Binary</strong> rulesets award points for a correct result and
-                  for the correct total goals, independently. Comes with default point
-                  values you can tune after creating.
-                </>
-              ) : (
-                <>
-                  <strong>Standard</strong> rulesets award the single highest-value
-                  matching rule per match. Comes pre-loaded with the default World Cup
-                  rules, which you can edit or disable.
-                </>
-              )}
+            <button
+              className="btn-primary"
+              onClick={handleCreate}
+              disabled={createConfig.isPending}
+            >
+              <Plus className="w-4 h-4" />
+              {createConfig.isPending ? 'Creating…' : 'Create ruleset'}
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                setCreating(false);
+                setNewName('');
+              }}
+            >
+              Cancel
+            </button>
+            <p className="w-full text-xs text-slate-500">
+              New rulesets start from the full component catalog (Best match) with sensible
+              default points. Tune everything below after creating.
             </p>
           </div>
         )}
@@ -425,9 +394,6 @@ export default function ScoringRulesPage() {
             >
               Cancel
             </button>
-            <span className="text-xs text-slate-400">
-              Copies this ruleset (type, settings &amp; rules) into a new one.
-            </span>
           </div>
         )}
       </div>
@@ -440,13 +406,9 @@ export default function ScoringRulesPage() {
             <>
               <p className="text-sm font-medium text-slate-700">No rulesets yet</p>
               <p className="text-xs text-slate-500 max-w-md">
-                Create your first ruleset to define how predictions earn points. The
-                optimizer runs the ruleset you choose on the Optimizer page.
+                Create your first ruleset to define how predictions earn points.
               </p>
-              <button
-                className="btn-primary mt-1"
-                onClick={() => setCreating(true)}
-              >
+              <button className="btn-primary mt-1" onClick={() => setCreating(true)}>
                 <Plus className="w-4 h-4" />
                 New ruleset
               </button>
@@ -464,125 +426,20 @@ export default function ScoringRulesPage() {
 
       {/* Selected ruleset editor */}
       {hasSelection && (
-        <>
-          {/* Ruleset summary header */}
-          <div className="card p-4 flex flex-wrap items-center gap-3">
-            <h3 className="text-base font-bold text-slate-800">{currentConfig!.name}</h3>
-            <ModeBadge mode={scoringMode} />
-            {currentConfig!.active && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
-                <CheckCircle2 className="w-3 h-3" />
-                Active
-              </span>
-            )}
-            <span className="text-xs text-slate-400 ml-auto">
-              {isBinary
-                ? 'Binary scoring — the rule table does not apply.'
-                : 'Standard scoring — highest matching rule wins per match.'}
-            </span>
-          </div>
-
-          {/* Binary point configuration */}
-          {isBinary && (
-            <div className="card p-4 flex flex-col gap-3">
-              <h3 className="text-sm font-semibold text-slate-700">Binary Points</h3>
-              <p className="text-xs text-slate-500">
-                A prediction earns these two awards independently: the result points for a
-                correct outcome (home win, draw or away win), plus the total-goals points
-                when the predicted total (home + away) matches.
-              </p>
-              <div className="flex flex-wrap items-center gap-6">
-                <label className="flex items-center gap-2 text-sm text-slate-600">
-                  Correct result
-                  <input
-                    key={`result-${currentConfig!.id}`}
-                    type="number"
-                    step="0.5"
-                    className="w-20 text-right input font-mono text-sm"
-                    defaultValue={currentConfig!.binary_result_points}
-                    onBlur={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!isNaN(v) && v !== currentConfig!.binary_result_points) {
-                        updateConfig.mutate({ binary_result_points: v });
-                      }
-                    }}
-                  />
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-600">
-                  Correct total goals
-                  <input
-                    key={`total-${currentConfig!.id}`}
-                    type="number"
-                    step="0.5"
-                    className="w-20 text-right input font-mono text-sm"
-                    defaultValue={currentConfig!.binary_total_goals_points}
-                    onBlur={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!isNaN(v) && v !== currentConfig!.binary_total_goals_points) {
-                        updateConfig.mutate({ binary_total_goals_points: v });
-                      }
-                    }}
-                  />
-                </label>
-              </div>
-            </div>
-          )}
-
-          {/* Standard mode: editable rule tables split by phase */}
-          {!isBinary && (
-            <>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  className="btn-secondary"
-                  onClick={() => setResetOpen(true)}
-                  disabled={resetRules.isPending}
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  Reset to Defaults
-                </button>
-                <button
-                  className="btn-primary"
-                  onClick={handleSaveAll}
-                  disabled={!hasPending || updateRule.isPending}
-                >
-                  <Save className="w-4 h-4" />
-                  Save Changes {hasPending ? `(${Object.keys(pendingChanges).length})` : ''}
-                </button>
-              </div>
-
-              {rulesLoading ? (
-                <div className="card p-8 text-center text-slate-400">Loading rules...</div>
-              ) : rules ? (
-                <>
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-700 mb-2">
-                      Group Stage Rules
-                    </h3>
-                    <EditableScoringTable
-                      rules={rules.filter((r) => r.phase === 'group')}
-                      onChange={handleChange}
-                      loading={updateRule.isPending}
-                    />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-700 mb-2">
-                      Knockout Stage Rules
-                    </h3>
-                    <p className="text-xs text-slate-500 mb-2">
-                      Applied to round-of-32, round-of-16, quarter-finals, semi-finals, and
-                      finals. The last two rules are exclusive to knockout matches.
-                    </p>
-                    <EditableScoringTable
-                      rules={rules.filter((r) => r.phase === 'knockout')}
-                      onChange={handleChange}
-                      loading={updateRule.isPending}
-                    />
-                  </div>
-                </>
-              ) : null}
-            </>
-          )}
-        </>
+        <RulesetEditor
+          key={currentConfig!.id}
+          config={currentConfig!}
+          rules={rules}
+          rulesLoading={rulesLoading}
+          rulesSaving={updateRule.isPending}
+          pendingCount={Object.keys(pendingChanges).length}
+          hasPending={hasPending}
+          onRename={(name) => updateConfig.mutate({ name })}
+          onConfigChange={(payload) => updateConfig.mutate(payload)}
+          onRuleChange={handleChange}
+          onSaveAll={handleSaveAll}
+          onReset={() => setResetOpen(true)}
+        />
       )}
 
       <ConfirmDialog
@@ -609,6 +466,213 @@ export default function ScoringRulesPage() {
           deleteConfig.mutate();
         }}
         onCancel={() => setDeleteOpen(false)}
+      />
+    </div>
+  );
+}
+
+interface RulesetEditorProps {
+  config: PoolConfig;
+  rules: PoolConfig['scoring_rules'];
+  rulesLoading: boolean;
+  rulesSaving: boolean;
+  pendingCount: number;
+  hasPending: boolean;
+  onRename: (name: string) => void;
+  onConfigChange: (payload: Parameters<typeof poolConfigsApi.update>[1]) => void;
+  onRuleChange: (
+    ruleId: string,
+    changes: { points?: number; enabled?: boolean; config?: Record<string, unknown> | null }
+  ) => void;
+  onSaveAll: () => void;
+  onReset: () => void;
+}
+
+function RulesetEditor({
+  config,
+  rules,
+  rulesLoading,
+  rulesSaving,
+  pendingCount,
+  hasPending,
+  onRename,
+  onConfigChange,
+  onRuleChange,
+  onSaveAll,
+  onReset,
+}: RulesetEditorProps) {
+  const [name, setName] = useState(config.name);
+  useEffect(() => setName(config.name), [config.name]);
+
+  const groupRules = (rules ?? []).filter((r) => r.phase === 'group');
+  const knockoutRules = (rules ?? []).filter((r) => r.phase === 'knockout');
+
+  return (
+    <>
+      {/* Ruleset summary header */}
+      <div className="card p-4 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            className="input text-base font-bold text-slate-800 w-72"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => {
+              const trimmed = name.trim();
+              if (trimmed && trimmed !== config.name) onRename(trimmed);
+              else setName(config.name);
+            }}
+            title="Rename this ruleset"
+          />
+          {config.active && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+              <CheckCircle2 className="w-3 h-3" />
+              Active
+            </span>
+          )}
+        </div>
+
+        {/* Pool-level settings */}
+        <div className="flex flex-wrap items-end gap-6 border-t border-slate-100 pt-3">
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+            Knockout scoring basis
+            <select
+              className="input text-sm w-64"
+              value={config.knockout_scoring_basis}
+              onChange={(e) =>
+                onConfigChange({ knockout_scoring_basis: e.target.value as KnockoutScoringBasis })
+              }
+              title="The match time scope knockouts are scored on. 90-minutes-only pools earn no advance/penalty bonus."
+            >
+              {Object.entries(BASIS_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+            <span className="flex items-center gap-1">
+              Picks lock (minutes before kickoff)
+              <span title="Informational only — how long before kickoff picks close in this pool. Not enforced by the optimizer.">
+                <Info className="w-3 h-3 text-slate-400" />
+              </span>
+            </span>
+            <input
+              type="number"
+              min={0}
+              placeholder="unset"
+              className="input text-sm w-32 font-mono"
+              defaultValue={config.pick_lock_minutes_before ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                const next = v === '' ? null : parseInt(v, 10);
+                if (next !== (config.pick_lock_minutes_before ?? null)) {
+                  onConfigChange({ pick_lock_minutes_before: next });
+                }
+              }}
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Save / reset actions */}
+      <div className="flex items-center justify-end gap-2">
+        <button className="btn-secondary" onClick={onReset} disabled={rulesSaving}>
+          <RotateCcw className="w-4 h-4" />
+          Reset to Defaults
+        </button>
+        <button className="btn-primary" onClick={onSaveAll} disabled={!hasPending || rulesSaving}>
+          <Save className="w-4 h-4" />
+          Save Changes {hasPending ? `(${pendingCount})` : ''}
+        </button>
+      </div>
+
+      {rulesLoading ? (
+        <div className="card p-8 text-center text-slate-400">Loading rules...</div>
+      ) : (
+        <>
+          <PhaseSection
+            title="Group Stage"
+            combineMode={config.group_combine_mode}
+            cap={config.group_cap}
+            onCombineChange={(v) => onConfigChange({ group_combine_mode: v })}
+            onCapChange={(v) => onConfigChange({ group_cap: v })}
+            rules={groupRules}
+            rulesSaving={rulesSaving}
+            onRuleChange={onRuleChange}
+          />
+          <PhaseSection
+            title="Knockout Stage"
+            subtitle="Round-of-32 through the final. The last two components (advance, penalty winner) are exclusive to knockouts and are summed on top."
+            combineMode={config.knockout_combine_mode}
+            cap={config.knockout_cap}
+            onCombineChange={(v) => onConfigChange({ knockout_combine_mode: v })}
+            onCapChange={(v) => onConfigChange({ knockout_cap: v })}
+            rules={knockoutRules}
+            rulesSaving={rulesSaving}
+            onRuleChange={onRuleChange}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
+interface PhaseSectionProps {
+  title: string;
+  subtitle?: string;
+  combineMode: CombineMode;
+  cap?: number | null;
+  onCombineChange: (v: CombineMode) => void;
+  onCapChange: (v: number | null) => void;
+  rules: NonNullable<PoolConfig['scoring_rules']>;
+  rulesSaving: boolean;
+  onRuleChange: (
+    ruleId: string,
+    changes: { points?: number; enabled?: boolean; config?: Record<string, unknown> | null }
+  ) => void;
+}
+
+function PhaseSection({
+  title,
+  subtitle,
+  combineMode,
+  cap,
+  onCombineChange,
+  onCapChange,
+  rules,
+  rulesSaving,
+  onRuleChange,
+}: PhaseSectionProps) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
+        <CombineToggle value={combineMode} onChange={onCombineChange} disabled={rulesSaving} />
+        <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          Per-match cap
+          <input
+            type="number"
+            min={0}
+            placeholder="none"
+            className="w-20 text-right input !py-1 font-mono text-xs"
+            defaultValue={cap ?? ''}
+            key={`cap-${title}-${cap ?? ''}`}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              const next = v === '' ? null : parseFloat(v);
+              if (next !== (cap ?? null)) onCapChange(next);
+            }}
+            title="Maximum points a single match can score in this phase. Leave blank for no cap."
+          />
+        </label>
+      </div>
+      {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
+      <EditableScoringTable
+        rules={rules}
+        onChange={onRuleChange}
+        loading={rulesSaving}
+        combineMode={combineMode}
       />
     </div>
   );

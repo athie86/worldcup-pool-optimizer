@@ -1,5 +1,10 @@
 import { api } from './client';
-import type { PoolConfig, ScoringRule, ScoringMode } from '../types';
+import type {
+  PoolConfig,
+  ScoringRule,
+  CombineMode,
+  KnockoutScoringBasis,
+} from '../types';
 
 export interface CreatePoolConfigPayload {
   name: string;
@@ -8,9 +13,12 @@ export interface CreatePoolConfigPayload {
   candidate_max_goals?: number;
   ranking_metric?: string;
   margin_removal_method?: string;
-  scoring_mode?: ScoringMode;
-  binary_result_points?: number;
-  binary_total_goals_points?: number;
+  group_combine_mode?: CombineMode;
+  knockout_combine_mode?: CombineMode;
+  group_cap?: number | null;
+  knockout_cap?: number | null;
+  knockout_scoring_basis?: KnockoutScoringBasis;
+  pick_lock_minutes_before?: number | null;
   active?: boolean;
 }
 
@@ -23,7 +31,7 @@ export interface DuplicatePoolConfigPayload {
 export interface UpdateScoringRulePayload {
   points?: number;
   enabled?: boolean;
-  phase?: string;
+  config?: Record<string, unknown> | null;
 }
 
 export const poolConfigsApi = {
