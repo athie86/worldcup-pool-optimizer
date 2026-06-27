@@ -90,6 +90,15 @@ class RecommendationItem(BaseModel):
     score_probability: Optional[float] = None
     scoring_breakdown: Optional[dict] = None
     penalties_winner: Optional[str] = None
+    # ── Horizon model additive fields ───────────────────────────────────────
+    scoring_basis: Optional[str] = None
+    score_horizon: Optional[str] = None
+    outcome_horizon: Optional[str] = None
+    predicted_penalty_winner: Optional[str] = None
+    predicted_advancer: Optional[str] = None
+    prob_home_advances: Optional[float] = None
+    prob_away_advances: Optional[float] = None
+    prob_goes_to_penalties: Optional[float] = None
 
 
 class MatchRecommendationOut(BaseModel):
@@ -159,3 +168,16 @@ class DiagnosticsOut(BaseModel):
     constraint_count: Optional[int] = None
     max_constraint_error: Optional[float] = None
     constraint_details: Optional[list[dict]] = None
+    # ── Horizon model additive fields (null for group / legacy fits) ─────────
+    horizon_model_type: Optional[str] = None
+    horizon_model_version: Optional[str] = None
+    horizon_fit_tier: Optional[str] = None
+    score_basis: Optional[str] = None
+    outcome_basis: Optional[str] = None
+    score_matrix_120: Optional[list[list[float]]] = None
+    p_goes_to_extra_time: Optional[float] = None
+    p_goes_to_penalties: Optional[float] = None
+    p_home_advances: Optional[float] = None
+    p_away_advances: Optional[float] = None
+    p_home_wins_penalties_given_pens: Optional[float] = None
+    p_away_wins_penalties_given_pens: Optional[float] = None

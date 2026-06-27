@@ -162,3 +162,44 @@ def fit_with_knockout_extras(
         scoring_basis,
     )
     return result, extras
+
+
+def fit_horizon_model(
+    model_version: str,
+    market: MarketProbabilities,
+    bookmaker_markets: Optional[list[BookmakerMarket]] = None,
+    *,
+    fundamental_inputs: Optional[FundamentalInputs] = None,
+    scoring_basis: str = "ninety_minutes_extra_time_penalties",
+    actual_score_max: int = 12,
+    et_score_max: int = 4,
+    candidate_score_max: int = 5,
+    devig_method: str = "auto",
+    default_auto_devig: str = "power",
+    enable_fundamental: bool = True,
+    enable_asian_lines: bool = True,
+    v1_fallback_enabled: bool = True,
+):
+    """Fit the full horizon-consistent knockout model around the P90 engine.
+
+    Returns ``(CalibratedModelResult, HorizonModelResult)``. The P90 fit drives
+    the existing DB/diagnostics fields; the horizon result drives the optimizer's
+    terminal-state evaluation. Imported lazily to avoid a circular import.
+    """
+    from .horizon_score_model import fit_horizon_score_model
+
+    return fit_horizon_score_model(
+        market,
+        bookmaker_markets,
+        fundamental_inputs=fundamental_inputs,
+        scoring_basis=scoring_basis,
+        model_version=model_version,
+        actual_score_max=actual_score_max,
+        et_score_max=et_score_max,
+        candidate_score_max=candidate_score_max,
+        devig_method=devig_method,
+        default_auto_devig=default_auto_devig,
+        enable_fundamental=enable_fundamental,
+        enable_asian_lines=enable_asian_lines,
+        v1_fallback_enabled=v1_fallback_enabled,
+    )

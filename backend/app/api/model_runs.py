@@ -25,8 +25,12 @@ from ..services.score_model import MarketProbabilities
 from ..services.optimizer import compute_expected_points
 from ..services.odds_normalization import compute_consensus, BookmakerMarket, RawOutcome
 from ..services import model_registry
-from ..services.knockout_model import KnockoutExtras
 from ..services.fundamental_prior import FundamentalInputs
+from ..services.horizon import (
+    basis_to_horizons,
+    compute_expected_points_from_terminal_states,
+    validate_pool_config_scoring_consistency,
+)
 from ..core.config import settings
 from ..core.logging import logger
 from .deps import get_current_user
@@ -116,32 +120,61 @@ def _compute_all_fits(
         try:
             scoring_basis = inp.get("scoring_basis", "ninety_minutes")
             phase = inp.get("phase", "group")
-            fit, extras = model_registry.fit_with_knockout_extras(
-                model_version,
-                inp["market_probs"],
-                inp["bookmaker_markets"],
-                fundamental_inputs=inp["fundamental"],
-                scoring_basis=scoring_basis,
-                actual_score_max=settings.ACTUAL_SCORE_MAX,
-                candidate_score_max=candidate_max,
-                devig_method=settings.V2_DEVIG_METHOD,
-                default_auto_devig=settings.V2_DEFAULT_AUTO_DEVIG,
-                enable_fundamental=settings.ENABLE_FUNDAMENTAL_PRIOR,
-                enable_asian_lines=settings.ENABLE_ASIAN_LINE_SUPPORT,
-                v1_fallback_enabled=settings.V1_FALLBACK_ENABLED,
-            )
             combine_mode = knockout_combine_mode if phase == "knockout" else group_combine_mode
             cap = knockout_cap if phase == "knockout" else group_cap
-            recs = compute_expected_points(
-                fit,
-                rules,
-                candidate_max,
-                combine_mode=combine_mode,
-                cap=cap,
-                phase=phase,
-                knockout_extras=extras,
-            )
-            results[match_id] = (fit, recs, extras)
+
+            if phase == "knockout":
+                # Horizon-consistent model: the optimizer evaluates candidates
+                # against the full terminal-state distribution, so 90'/120'/pens
+                # are all scored on the basis the pool actually uses.
+                fit, horizon = model_registry.fit_horizon_model(
+                    model_version,
+                    inp["market_probs"],
+                    inp["bookmaker_markets"],
+                    fundamental_inputs=inp["fundamental"],
+                    scoring_basis=scoring_basis,
+                    actual_score_max=settings.ACTUAL_SCORE_MAX,
+                    candidate_score_max=candidate_max,
+                    devig_method=settings.V2_DEVIG_METHOD,
+                    default_auto_devig=settings.V2_DEFAULT_AUTO_DEVIG,
+                    enable_fundamental=settings.ENABLE_FUNDAMENTAL_PRIOR,
+                    enable_asian_lines=settings.ENABLE_ASIAN_LINE_SUPPORT,
+                    v1_fallback_enabled=settings.V1_FALLBACK_ENABLED,
+                )
+                recs = compute_expected_points_from_terminal_states(
+                    horizon,
+                    rules,
+                    scoring_basis,
+                    candidate_max,
+                    combine_mode=combine_mode,
+                    cap=cap,
+                    phase=phase,
+                )
+                results[match_id] = (fit, recs, horizon)
+            else:
+                fit = model_registry.fit(
+                    model_version,
+                    inp["market_probs"],
+                    inp["bookmaker_markets"],
+                    fundamental_inputs=inp["fundamental"],
+                    actual_score_max=settings.ACTUAL_SCORE_MAX,
+                    candidate_score_max=candidate_max,
+                    devig_method=settings.V2_DEVIG_METHOD,
+                    default_auto_devig=settings.V2_DEFAULT_AUTO_DEVIG,
+                    enable_fundamental=settings.ENABLE_FUNDAMENTAL_PRIOR,
+                    enable_asian_lines=settings.ENABLE_ASIAN_LINE_SUPPORT,
+                    v1_fallback_enabled=settings.V1_FALLBACK_ENABLED,
+                )
+                recs = compute_expected_points(
+                    fit,
+                    rules,
+                    candidate_max,
+                    combine_mode=combine_mode,
+                    cap=cap,
+                    phase=phase,
+                    knockout_extras=None,
+                )
+                results[match_id] = (fit, recs, None)
         except Exception as exc:
             errors[match_id] = str(exc)
     return results, errors
@@ -177,6 +210,14 @@ async def create_model_run(
         )
         for r in pool_config.scoring_rules
     ]
+
+    # The pool's knockout rules must be consistent with its scoring basis, or the
+    # model would be asked to score a rule it has no probability object for.
+    consistency_errors = validate_pool_config_scoring_consistency(
+        pool_config.knockout_scoring_basis, pool_config.scoring_rules
+    )
+    if consistency_errors:
+        raise HTTPException(status_code=400, detail="; ".join(consistency_errors))
 
     # Resolve snapshot: always pin to a single snapshot so consensus only uses
     # current prices, never an average of historical refreshes.
@@ -318,20 +359,52 @@ async def create_model_run(
         if match.id not in fit_results:
             continue
         mp = match_inputs_by_id[match.id]["market_probs"]
-        fit, recs, extras = fit_results[match.id]
+        scoring_basis = match_inputs_by_id[match.id].get("scoring_basis", "ninety_minutes")
+        fit, recs, horizon = fit_results[match.id]
         try:
-            # Merge knockout extras into diagnostics before persisting.
+            # Merge horizon terminal probabilities into diagnostics for the UI.
             diagnostics = dict(fit.diagnostics or {})
-            if extras is not None:
+            horizon_fields: dict = {}
+            if horizon is not None:
                 diagnostics["knockout_extras"] = {
-                    "p_draw_90": extras.p_draw_90,
-                    "p_home_wins_et": extras.p_home_wins_et,
-                    "p_away_wins_et": extras.p_away_wins_et,
-                    "p_still_draw_after_et": extras.p_still_draw_after_et,
-                    "p_home_wins_penalties": extras.p_home_wins_penalties,
-                    "p_away_wins_penalties": extras.p_away_wins_penalties,
-                    "p_goes_to_penalties": extras.p_goes_to_penalties,
-                    "optimal_penalties_winner": extras.optimal_penalties_winner,
+                    "p_draw_90": horizon.p_draw_90,
+                    "p_goes_to_extra_time": horizon.p_goes_to_extra_time,
+                    "p_goes_to_penalties": horizon.p_goes_to_penalties,
+                    "p_home_advances": horizon.p_home_advances,
+                    "p_away_advances": horizon.p_away_advances,
+                    "p_home_wins_penalties": horizon.p_home_wins_penalties_given_pens,
+                    "p_away_wins_penalties": horizon.p_away_wins_penalties_given_pens,
+                    "optimal_penalties_winner": (
+                        "home" if horizon.p_home_wins_penalties_given_pens >= 0.5 else "away"
+                    ),
+                }
+                diagnostics["horizon"] = horizon.diagnostics.get("terminal_probabilities")
+                horizon_fields = {
+                    "score_matrix_90": horizon.score_matrix_90.tolist(),
+                    "score_matrix_120": horizon.score_matrix_120.tolist(),
+                    "terminal_states": [
+                        {
+                            "s90": [s.score_90_home, s.score_90_away],
+                            "s120": [s.score_120_home, s.score_120_away],
+                            "et": s.went_to_extra_time,
+                            "pens": s.went_to_penalties,
+                            "adv": s.advancing_team,
+                            "pen_w": s.penalty_winner,
+                            "kind": s.state_kind,
+                            "p": s.probability,
+                        }
+                        for s in horizon.terminal_states
+                    ],
+                    "p_goes_to_extra_time": horizon.p_goes_to_extra_time,
+                    "p_goes_to_penalties": horizon.p_goes_to_penalties,
+                    "p_home_advances": horizon.p_home_advances,
+                    "p_away_advances": horizon.p_away_advances,
+                    "p_home_wins_penalties_given_pens": horizon.p_home_wins_penalties_given_pens,
+                    "p_away_wins_penalties_given_pens": horizon.p_away_wins_penalties_given_pens,
+                    "horizon_model_type": horizon.model_type,
+                    "horizon_model_version": horizon.model_version,
+                    "horizon_fit_tier": horizon.fit_tier,
+                    "horizon_diagnostics": horizon.diagnostics,
                 }
             constraint_details = diagnostics.get("constraint_details")
             model_fit = models.MatchModelFit(
@@ -370,6 +443,7 @@ async def create_model_run(
                     fit.prior_matrix.tolist() if fit.prior_matrix is not None else None
                 ),
                 calibration_parameters=diagnostics.get("calibration", {}).get("parameters"),
+                **horizon_fields,
             )
             db.add(model_fit)
             await db.flush()
@@ -395,6 +469,16 @@ async def create_model_run(
                         source_details={"quality_label": cd.get("quality_label")},
                     ))
 
+            if horizon is not None:
+                score_h, outcome_h = basis_to_horizons(scoring_basis)
+                rec_basis = scoring_basis
+                rec_score_h: Optional[str] = score_h.value
+                rec_outcome_h: Optional[str] = outcome_h.value
+            else:
+                rec_basis = "ninety_minutes"
+                rec_score_h = "regulation_90"
+                rec_outcome_h = "regulation_90"
+
             for rec in recs:
                 sr = models.ScoreRecommendation(
                     match_model_fit_id=model_fit.id,
@@ -407,6 +491,15 @@ async def create_model_run(
                     score_probability=rec.score_probability,
                     scoring_breakdown=rec.scoring_breakdown,
                     penalties_winner=rec.penalties_winner,
+                    scoring_basis=rec_basis,
+                    score_horizon=rec_score_h,
+                    outcome_horizon=rec_outcome_h,
+                    predicted_penalty_winner=rec.penalties_winner,
+                    predicted_advancer=getattr(rec, "predicted_advancer", None),
+                    expected_points_by_rule=rec.scoring_breakdown,
+                    prob_home_advances=(horizon.p_home_advances if horizon is not None else None),
+                    prob_away_advances=(horizon.p_away_advances if horizon is not None else None),
+                    prob_goes_to_penalties=(horizon.p_goes_to_penalties if horizon is not None else None),
                 )
                 db.add(sr)
 
@@ -535,6 +628,20 @@ async def get_recommendations(
                         score_probability=float(r.score_probability) if r.score_probability is not None else None,
                         scoring_breakdown=r.scoring_breakdown,
                         penalties_winner=r.penalties_winner,
+                        scoring_basis=getattr(r, "scoring_basis", None),
+                        score_horizon=getattr(r, "score_horizon", None),
+                        outcome_horizon=getattr(r, "outcome_horizon", None),
+                        predicted_penalty_winner=getattr(r, "predicted_penalty_winner", None),
+                        predicted_advancer=getattr(r, "predicted_advancer", None),
+                        prob_home_advances=(
+                            float(r.prob_home_advances) if getattr(r, "prob_home_advances", None) is not None else None
+                        ),
+                        prob_away_advances=(
+                            float(r.prob_away_advances) if getattr(r, "prob_away_advances", None) is not None else None
+                        ),
+                        prob_goes_to_penalties=(
+                            float(r.prob_goes_to_penalties) if getattr(r, "prob_goes_to_penalties", None) is not None else None
+                        ),
                     )
                     for r in recs
                 ],
@@ -644,7 +751,24 @@ async def _build_diagnostics(
             float(fit.max_constraint_error) if fit.max_constraint_error is not None else None
         ),
         constraint_details=diag.get("constraint_details"),
+        # ── Horizon model fields ────────────────────────────────────────────
+        horizon_model_type=getattr(fit, "horizon_model_type", None) or diag.get("horizon_model_type"),
+        horizon_model_version=getattr(fit, "horizon_model_version", None) or diag.get("horizon_model_version"),
+        horizon_fit_tier=getattr(fit, "horizon_fit_tier", None) or diag.get("horizon_fit_tier"),
+        score_basis=(diag.get("horizon_diagnostics") or {}).get("score_basis") if diag.get("horizon_diagnostics") else None,
+        outcome_basis=(diag.get("horizon_diagnostics") or {}).get("outcome_basis") if diag.get("horizon_diagnostics") else None,
+        score_matrix_120=getattr(fit, "score_matrix_120", None),
+        p_goes_to_extra_time=_as_float(getattr(fit, "p_goes_to_extra_time", None)),
+        p_goes_to_penalties=_as_float(getattr(fit, "p_goes_to_penalties", None)),
+        p_home_advances=_as_float(getattr(fit, "p_home_advances", None)),
+        p_away_advances=_as_float(getattr(fit, "p_away_advances", None)),
+        p_home_wins_penalties_given_pens=_as_float(getattr(fit, "p_home_wins_penalties_given_pens", None)),
+        p_away_wins_penalties_given_pens=_as_float(getattr(fit, "p_away_wins_penalties_given_pens", None)),
     )
+
+
+def _as_float(v) -> Optional[float]:
+    return float(v) if v is not None else None
 
 
 @router.get("/matches/{match_id}/diagnostics", response_model=DiagnosticsOut)

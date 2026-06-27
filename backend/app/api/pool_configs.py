@@ -17,15 +17,48 @@ from ..schemas.pool_configs import (
     ScoringRuleOut,
 )
 from ..core.defaults import get_default_rules
+from ..services.horizon import (
+    RULE_DEFINITIONS,
+    rule_is_valid_for_basis,
+    validate_pool_config_scoring_consistency,
+)
 from .deps import get_current_user
 
 router = APIRouter()
 
 
-async def _ensure_default_rules(db: AsyncSession, config_id: uuid.UUID) -> None:
-    """Seed the canonical default scoring rules for a config that has none."""
-    for rule_data in get_default_rules():
+def _reconcile_rules_for_basis(rule_dicts: list[dict], basis: str) -> list[dict]:
+    """Disable knockout rules a basis cannot support, so a seed is always valid.
+
+    Group-phase rules are untouched. Knockout bonus rules (advance /
+    penalty_winner) are forced disabled when the basis does not allow them.
+    """
+    for rd in rule_dicts:
+        if rd.get("phase") != "knockout":
+            continue
+        code = rd.get("code")
+        if code in RULE_DEFINITIONS and not rule_is_valid_for_basis(code, "knockout", basis):
+            rd["enabled"] = False
+    return rule_dicts
+
+
+async def _ensure_default_rules(
+    db: AsyncSession, config_id: uuid.UUID, basis: str = "ninety_minutes"
+) -> None:
+    """Seed the canonical default scoring rules for a config that has none.
+
+    The seed is reconciled to ``basis`` so a brand-new config is never created in
+    an inconsistent rule/basis state.
+    """
+    for rule_data in _reconcile_rules_for_basis(get_default_rules(), basis):
         db.add(models.ScoringRule(pool_config_id=config_id, **rule_data))
+
+
+def _assert_consistent(basis: str, rules: list) -> None:
+    """Raise 400 if the enabled knockout rules are inconsistent with the basis."""
+    errors = validate_pool_config_scoring_consistency(basis, rules)
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
 
 
 async def _load_rules(db: AsyncSession, config_id: uuid.UUID) -> list[models.ScoringRule]:
@@ -62,7 +95,7 @@ async def create_pool_config(
 
     # A new configuration is only useful once it has a scoring system, so seed
     # the canonical defaults. They can be edited or reset afterwards.
-    await _ensure_default_rules(db, config.id)
+    await _ensure_default_rules(db, config.id, config.knockout_scoring_basis)
 
     # If this config is marked active, make sure it is the *only* active one.
     if config.active:
@@ -184,8 +217,15 @@ async def update_pool_config(
     if not config:
         raise HTTPException(status_code=404, detail="Pool config not found")
 
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(config, field, value)
+
+    # If the knockout basis changed, the enabled knockout rules must still be
+    # consistent with it.
+    if "knockout_scoring_basis" in changes and changes["knockout_scoring_basis"]:
+        rules = await _load_rules(db, config_id)
+        _assert_consistent(config.knockout_scoring_basis, rules)
 
     await db.commit()
     result = await db.execute(
@@ -250,6 +290,10 @@ async def upsert_scoring_rules(
             db.add(rule)
         updated.append(rule)
 
+    # Reject a save that enables knockout rules the pool's basis cannot score.
+    full_set = list({id(r): r for r in (*existing.values(), *updated)}.values())
+    _assert_consistent(config.knockout_scoring_basis, full_set)
+
     await db.commit()
 
     # Reload
@@ -274,6 +318,11 @@ async def activate_pool_config(
     config = result.scalar_one_or_none()
     if not config:
         raise HTTPException(status_code=404, detail="Pool config not found")
+
+    # A config can only be activated if its scoring rules are consistent with its
+    # knockout basis (so model runs against it are always rule-consistent).
+    rules = await _load_rules(db, config_id)
+    _assert_consistent(config.knockout_scoring_basis, rules)
 
     await db.execute(models.PoolConfig.__table__.update().values(active=False))
     config.active = True
@@ -303,7 +352,7 @@ async def get_scoring_rules(
 
     rules = await _load_rules(db, config_id)
     if not rules:
-        await _ensure_default_rules(db, config_id)
+        await _ensure_default_rules(db, config_id, config.knockout_scoring_basis)
         await db.commit()
         rules = await _load_rules(db, config_id)
     else:
@@ -311,7 +360,10 @@ async def get_scoring_rules(
         # the missing knockout rules without touching the user's custom group values.
         existing_phases = {r.phase for r in rules}
         if "knockout" not in existing_phases:
-            ko_defaults = [r for r in get_default_rules() if r["phase"] == "knockout"]
+            ko_defaults = _reconcile_rules_for_basis(
+                [r for r in get_default_rules() if r["phase"] == "knockout"],
+                config.knockout_scoring_basis,
+            )
             for rule_data in ko_defaults:
                 db.add(models.ScoringRule(pool_config_id=config_id, **rule_data))
             await db.commit()
@@ -342,6 +394,15 @@ async def patch_scoring_rule(
     for field, value in changes.items():
         setattr(rule, field, value)
 
+    # Toggling a knockout bonus on must remain consistent with the pool's basis.
+    config_result = await db.execute(
+        select(models.PoolConfig).where(models.PoolConfig.id == config_id)
+    )
+    config = config_result.scalar_one_or_none()
+    if config is not None:
+        rules = await _load_rules(db, config_id)
+        _assert_consistent(config.knockout_scoring_basis, rules)
+
     await db.commit()
     await db.refresh(rule)
     return rule
@@ -366,6 +427,6 @@ async def reset_scoring_rules(
         await db.delete(rule)
     await db.flush()
 
-    await _ensure_default_rules(db, config_id)
+    await _ensure_default_rules(db, config_id, config.knockout_scoring_basis)
     await db.commit()
     return await _load_rules(db, config_id)

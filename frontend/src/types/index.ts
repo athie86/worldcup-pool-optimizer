@@ -142,6 +142,15 @@ export interface Recommendation {
   zero_point_probability: number;
   score_probability: number;
   scoring_breakdown: Record<string, number>;
+  // Horizon model additive fields (undefined for group / legacy runs)
+  scoring_basis?: string;
+  score_horizon?: string;
+  outcome_horizon?: string;
+  predicted_penalty_winner?: string;
+  predicted_advancer?: string;
+  prob_home_advances?: number;
+  prob_away_advances?: number;
+  prob_goes_to_penalties?: number;
 }
 
 export interface MatchRecommendation {

@@ -23,6 +23,7 @@ class Recommendation:
     score_probability: float
     scoring_breakdown: dict
     penalties_winner: Optional[str] = None
+    predicted_advancer: Optional[str] = None
 
 
 def _advance_probabilities(

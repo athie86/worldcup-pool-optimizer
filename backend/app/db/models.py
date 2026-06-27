@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, Any
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text,
+    Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
     UniqueConstraint, func, text
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
@@ -284,6 +284,20 @@ class MatchModelFit(Base):
     market_constraints_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     prior_score_matrix: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     calibration_parameters: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    # ── Horizon model additive columns (spec: full horizon-consistent KO) ────
+    score_matrix_90: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    score_matrix_120: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    terminal_states: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    p_goes_to_extra_time: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    p_goes_to_penalties: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    p_home_advances: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    p_away_advances: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    p_home_wins_penalties_given_pens: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    p_away_wins_penalties_given_pens: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    horizon_model_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    horizon_model_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    horizon_fit_tier: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    horizon_diagnostics: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     model_run: Mapped["ModelRun"] = relationship("ModelRun", back_populates="match_model_fits")
@@ -310,6 +324,20 @@ class ScoreRecommendation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     penalties_winner: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # ── Horizon model additive columns (spec: full horizon-consistent KO) ────
+    scoring_basis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    score_horizon: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    outcome_horizon: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    predicted_penalty_winner: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    predicted_advancer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expected_points_by_state: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    expected_points_by_rule: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    prob_exact_90: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    prob_exact_120: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    prob_home_advances: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    prob_away_advances: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    prob_goes_to_penalties: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
 
     match_model_fit: Mapped["MatchModelFit"] = relationship("MatchModelFit", back_populates="score_recommendations")
 

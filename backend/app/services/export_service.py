@@ -52,6 +52,11 @@ def build_csv(
         "predicted_score", "expected_points",
         "zero_point_probability", "variance",
         "fit_status",
+        # ── Horizon model fields ─────────────────────────────────────────────
+        "score_basis", "outcome_basis",
+        "predicted_penalty_winner", "predicted_advancer",
+        "p_extra_time", "p_penalties",
+        "p_home_advances", "p_away_advances",
     ])
 
     for fit in fits:
@@ -62,6 +67,11 @@ def build_csv(
             match_label = f"{home} vs {away}"
         else:
             match_label = str(fit.match_id)
+
+        p_et = _fmt(getattr(fit, "p_goes_to_extra_time", None))
+        p_pens = _fmt(getattr(fit, "p_goes_to_penalties", None))
+        p_home_adv = _fmt(getattr(fit, "p_home_advances", None))
+        p_away_adv = _fmt(getattr(fit, "p_away_advances", None))
 
         recs = sorted(fit.score_recommendations, key=lambda r: r.rank)[:top_n]
         for rec in recs:
@@ -76,9 +86,27 @@ def build_csv(
                 f"{float(rec.zero_point_probability or 0):.4f}",
                 f"{float(rec.variance_points or 0):.4f}",
                 fit.fit_status or "",
+                _opt_str(getattr(rec, "score_horizon", None)),
+                _opt_str(getattr(rec, "outcome_horizon", None)),
+                _opt_str(getattr(rec, "predicted_penalty_winner", None)) or _opt_str(getattr(rec, "penalties_winner", None)),
+                _opt_str(getattr(rec, "predicted_advancer", None)),
+                p_et, p_pens, p_home_adv, p_away_adv,
             ])
 
     return output.getvalue().encode("utf-8")
+
+
+def _fmt(v) -> str:
+    """Format an optional probability for output (blank when absent/invalid)."""
+    try:
+        return f"{float(v):.4f}" if v is not None else ""
+    except (TypeError, ValueError):
+        return ""
+
+
+def _opt_str(v) -> str:
+    """Coerce an optional string-ish field to a plain string (blank otherwise)."""
+    return v if isinstance(v, str) else ""
 
 
 def build_excel(
@@ -98,6 +126,8 @@ def build_excel(
         "Home Goals", "Away Goals",
         "Expected Points", "Zero Prob", "Variance",
         "Score Probability",
+        "Score Basis", "Outcome Basis",
+        "Penalty Winner", "Advancer",
     ]
     ws_picks.append(headers)
     _navy_header_style(ws_picks, 1, len(headers))
@@ -124,6 +154,10 @@ def build_excel(
                 round(float(rec.zero_point_probability or 0), 4),
                 round(float(rec.variance_points or 0), 4),
                 round(float(rec.score_probability or 0), 6),
+                _opt_str(getattr(rec, "score_horizon", None)),
+                _opt_str(getattr(rec, "outcome_horizon", None)),
+                _opt_str(getattr(rec, "predicted_penalty_winner", None)) or _opt_str(getattr(rec, "penalties_winner", None)),
+                _opt_str(getattr(rec, "predicted_advancer", None)),
             ]
             ws_picks.append(row)
             if row_fill:

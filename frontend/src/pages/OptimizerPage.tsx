@@ -37,7 +37,9 @@ function RecommendationRow({ rec, isKnockout }: { rec: Recommendation; isKnockou
         {rec.predicted_home_goals}–{rec.predicted_away_goals}
         {isKnockout && rec.penalties_winner && (
           <span className="ml-2 text-[10px] font-normal text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-            Pen: {rec.penalties_winner}
+            {rec.predicted_advancer
+              ? `${rec.predicted_advancer === 'home' ? 'Home' : 'Away'} advances on pens`
+              : `Pen: ${rec.penalties_winner}`}
           </span>
         )}
       </td>
@@ -320,6 +322,16 @@ export default function OptimizerPage() {
                                 {format(new Date(rec.kickoff_at), 'MMM d HH:mm')}
                               </span>
                             )}
+                            {rec.stage && rec.stage !== 'group' && rec.knockout_extras && (
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                {rec.knockout_extras.p_goes_to_extra_time != null &&
+                                  `ET ${(rec.knockout_extras.p_goes_to_extra_time * 100).toFixed(0)}%`}
+                                {rec.knockout_extras.p_goes_to_penalties != null &&
+                                  ` · Pens ${(rec.knockout_extras.p_goes_to_penalties * 100).toFixed(0)}%`}
+                                {rec.knockout_extras.p_home_advances != null &&
+                                  ` · Adv ${(rec.knockout_extras.p_home_advances * 100).toFixed(0)}/${((rec.knockout_extras.p_away_advances ?? (1 - rec.knockout_extras.p_home_advances)) * 100).toFixed(0)}`}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-3 py-2.5 font-mono text-xs text-slate-600">
@@ -334,7 +346,9 @@ export default function OptimizerPage() {
                               </span>
                               {rec.stage && rec.stage !== 'group' && rec.recommendations[0].penalties_winner && (
                                 <span className="text-[10px] font-normal text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-fit">
-                                  Pen: {rec.recommendations[0].penalties_winner}
+                                  {rec.recommendations[0].predicted_advancer
+                                    ? `${rec.recommendations[0].predicted_advancer === 'home' ? 'Home' : 'Away'} advances on pens`
+                                    : `Pen: ${rec.recommendations[0].penalties_winner}`}
                                 </span>
                               )}
                             </div>
