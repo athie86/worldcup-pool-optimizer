@@ -3,8 +3,8 @@ import type { ExportRecord } from '../types';
 
 export interface CreateExportPayload {
   format: 'csv' | 'xlsx';
-  model_run_id?: string;
-  pool_config_id?: string;
+  model_run_id: string;
+  top_n?: number;
 }
 
 export const exportsApi = {

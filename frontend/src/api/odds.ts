@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { OddsSnapshot, MatchOdds, ManualOverride } from '../types';
+import type { OddsSnapshot, MatchOdds, ManualOverride, OddsRefreshResult } from '../types';
 
 export interface CreateOverridePayload {
   market_key: string;
@@ -15,7 +15,8 @@ export const oddsApi = {
 
   getSnapshot: (id: string) => api.get<OddsSnapshot>(`/odds/snapshots/${id}`),
 
-  triggerRefresh: () => api.post<OddsSnapshot>('/odds/refresh'),
+  // Manual odds refresh. Body is optional; the backend uses configured defaults.
+  triggerRefresh: () => api.post<OddsRefreshResult>('/odds/refresh', {}),
 
   // Match odds
   getMatchOdds: (matchId: string) => api.get<MatchOdds>(`/odds/matches/${matchId}`),

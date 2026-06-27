@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Eye, EyeOff, LogIn } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { BrandMark } from '../components/BrandMark';
 
 export default function LoginPage() {
   const { isAuthenticated, isLoading, login } = useAuth();
@@ -32,9 +33,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm mx-4">
         {/* Logo / Title */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-red-700 flex items-center justify-center mb-4 shadow-lg">
-            <span className="text-white font-bold text-2xl">WC</span>
-          </div>
+          <BrandMark className="w-20 h-20 rounded-2xl mb-4 shadow-lg" />
           <h1 className="text-white text-2xl font-bold text-center">World Cup Pool</h1>
           <p className="text-yellow-400 text-sm font-medium mt-1">Optimizer — FIFA 2026</p>
         </div>

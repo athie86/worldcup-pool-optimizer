@@ -3,12 +3,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from .core.config import settings
 from .core.logging import setup_logging
-from .api import auth, health, matches, odds, pool_configs, model_runs, exports
+from .api import auth, health, matches, odds, pool_configs, model_runs, exports, settings as settings_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    # Schema migrations are applied by the container entrypoint
+    # (`alembic upgrade head`) before the server starts. This create_all call is
+    # a defensive fallback for environments that bypass the entrypoint (e.g.
+    # running uvicorn directly): it is idempotent and only creates missing
+    # tables. Note it cannot add new columns to existing tables — that is what
+    # the Alembic migrations are for.
+    try:
+        from .db import models  # noqa: F401 - register models on the metadata
+        from .db.session import create_all_tables
+        await create_all_tables()
+    except Exception as exc:  # pragma: no cover - log and keep serving
+        from .core.logging import logger
+        logger.error("startup: create_all_tables failed", error=str(exc))
     yield
 
 
@@ -29,3 +42,4 @@ app.include_router(matches.router, prefix="/api", tags=["matches"])
 app.include_router(odds.router, prefix="/api", tags=["odds"])
 app.include_router(model_runs.router, prefix="/api", tags=["model-runs"])
 app.include_router(exports.router, prefix="/api/exports", tags=["exports"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])

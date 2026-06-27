@@ -16,6 +16,7 @@ class ScoringRuleOut(BaseModel):
     points: float
     enabled: bool
     display_specificity_rank: int
+    phase: str = "group"
     created_at: datetime
     updated_at: datetime
 
@@ -27,6 +28,7 @@ class ScoringRuleCreate(BaseModel):
     points: float
     enabled: bool = True
     display_specificity_rank: int
+    phase: str = "group"
 
 
 class ScoringRuleUpsert(BaseModel):
@@ -36,6 +38,13 @@ class ScoringRuleUpsert(BaseModel):
     points: float
     enabled: bool = True
     display_specificity_rank: int
+    phase: str = "group"
+
+
+class ScoringRulePatch(BaseModel):
+    """Partial update for a single scoring rule (points and/or enabled)."""
+    points: Optional[float] = None
+    enabled: Optional[bool] = None
 
 
 class PoolConfigOut(BaseModel):
@@ -48,6 +57,9 @@ class PoolConfigOut(BaseModel):
     candidate_max_goals: int
     ranking_metric: str
     margin_removal_method: str
+    scoring_mode: str = "standard"
+    binary_result_points: float = 1.0
+    binary_total_goals_points: float = 1.0
     active: bool
     created_at: datetime
     updated_at: datetime
@@ -61,6 +73,9 @@ class PoolConfigCreate(BaseModel):
     candidate_max_goals: int = 5
     ranking_metric: str = "expected_points"
     margin_removal_method: str = "proportional"
+    scoring_mode: str = "standard"
+    binary_result_points: float = 1.0
+    binary_total_goals_points: float = 1.0
     active: bool = True
 
 
@@ -71,4 +86,14 @@ class PoolConfigUpdate(BaseModel):
     candidate_max_goals: Optional[int] = None
     ranking_metric: Optional[str] = None
     margin_removal_method: Optional[str] = None
+    scoring_mode: Optional[str] = None
+    binary_result_points: Optional[float] = None
+    binary_total_goals_points: Optional[float] = None
     active: Optional[bool] = None
+
+
+class PoolConfigDuplicate(BaseModel):
+    """Create a new pool config as a copy of an existing one (a saved preset)."""
+    name: str
+    description: Optional[str] = None
+    active: bool = False

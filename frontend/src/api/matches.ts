@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { Match, DashboardStats } from '../types';
+import type { Match, DashboardStats, ImportSummary } from '../types';
 
 export interface MatchListParams {
   stage?: string;
@@ -49,15 +49,33 @@ export const matchesApi = {
 
   delete: (id: string) => api.delete<void>(`/matches/${id}`),
 
-  importSchedule: (file: File) => {
+  importSchedule: async (file: File): Promise<ImportSummary> => {
     const form = new FormData();
     form.append('file', file);
-    return fetch('/api/matches/import', {
+    const res = await fetch('/api/matches/import', {
       method: 'POST',
       credentials: 'include',
       body: form,
-    }).then((r) => r.json());
+    });
+    const text = await res.text();
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = undefined;
+    }
+    if (!res.ok) {
+      const detail =
+        data && typeof data === 'object' && 'detail' in data
+          ? String((data as { detail: unknown }).detail)
+          : text || 'Import failed';
+      throw new Error(detail);
+    }
+    return data as ImportSummary;
   },
+
+  importProviderSchedule: () =>
+    api.post<ImportSummary>('/matches/import-provider-schedule', {}),
 
   dashboardStats: () => api.get<DashboardStats>('/dashboard/stats'),
 };

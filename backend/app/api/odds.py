@@ -1,6 +1,6 @@
 from __future__ import annotations
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,11 +43,23 @@ async def _do_odds_refresh(
         requested_markets=markets,
         requested_regions=regions,
         requested_bookmakers=bookmakers,
-        fetched_at=datetime.utcnow(),
+        fetched_at=datetime.now(timezone.utc),
         status="pending",
     )
     db.add(snapshot)
     await db.flush()
+
+    # Fail fast with a clear, human-readable message when the provider is not
+    # configured, instead of surfacing a cryptic provider 401.
+    if settings.ODDS_PROVIDER == "the_odds_api" and not settings.ODDS_API_KEY:
+        snapshot.status = "error"
+        snapshot.error_message = (
+            "ODDS_API_KEY is not configured. Add your The Odds API key to the "
+            "environment (ODDS_API_KEY) and redeploy/restart the backend to fetch live odds."
+        )
+        logger.error("odds_refresh: missing ODDS_API_KEY")
+        await db.commit()
+        return snapshot
 
     try:
         events, request_url, raw = await provider.fetch_odds(
@@ -58,7 +70,10 @@ async def _do_odds_refresh(
         )
         snapshot.status = "success"
         snapshot.request_url = request_url
-        snapshot.raw_response = raw
+        snapshot.raw_response = {
+            "event_count": len(events),
+            "request_url": request_url,
+        }
 
         # Persist events
         for evt in events:
@@ -116,10 +131,14 @@ async def _do_odds_refresh(
 
 @router.post("/odds/refresh", response_model=OddsRefreshResponse)
 async def refresh_odds(
-    body: OddsRefreshRequest,
+    body: OddsRefreshRequest | None = None,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(get_current_user),
 ):
+    # Manual refresh is intentionally the only way odds are fetched (there is no
+    # background scheduler). The request body is optional; when omitted we fall
+    # back to the configured defaults.
+    body = body or OddsRefreshRequest()
     sport_key = body.sport_key or settings.ODDS_SPORT_KEY
     markets = body.markets or settings.ODDS_MARKETS
     regions = body.regions or settings.ODDS_REGIONS

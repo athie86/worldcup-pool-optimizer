@@ -16,6 +16,7 @@ def make_mock_run():
     pool_config.name = "Test Pool"
     pool_config.candidate_max_goals = 5
     pool_config.ranking_metric = "expected_points"
+    pool_config.scoring_mode = "standard"
 
     rule1 = MagicMock()
     rule1.code = "exact_score"

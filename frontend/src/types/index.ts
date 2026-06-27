@@ -40,7 +40,10 @@ export interface ScoringRule {
   points: number;
   enabled: boolean;
   display_specificity_rank: number;
+  phase: string;
 }
+
+export type ScoringMode = 'standard' | 'binary';
 
 export interface PoolConfig {
   id: string;
@@ -50,6 +53,9 @@ export interface PoolConfig {
   candidate_max_goals: number;
   ranking_metric: string;
   margin_removal_method: string;
+  scoring_mode: ScoringMode;
+  binary_result_points: number;
+  binary_total_goals_points: number;
   active: boolean;
   scoring_rules?: ScoringRule[];
 }
@@ -60,6 +66,22 @@ export interface OddsSnapshot {
   fetched_at: string;
   status: string;
   requested_markets: string[];
+}
+
+export interface OddsRefreshResult {
+  snapshot_id: string;
+  status: string;
+  events_count: number;
+  message?: string;
+}
+
+export interface ImportSummary {
+  message: string;
+  created: number;
+  updated: number;
+  teams_created: number;
+  skipped: number;
+  errors: string[];
 }
 
 export interface MarketOdds {
@@ -104,6 +126,7 @@ export interface Recommendation {
   rank: number;
   predicted_home_goals: number;
   predicted_away_goals: number;
+  penalties_winner?: string;
   expected_points: number;
   variance_points: number;
   zero_point_probability: number;
@@ -113,12 +136,24 @@ export interface Recommendation {
 
 export interface MatchRecommendation {
   match_id: string;
+  stage?: string;
+  scoring_basis?: string;
   home_team: string;
   away_team: string;
   kickoff_at?: string;
   lambda_home?: number;
   lambda_away?: number;
   fit_status: string;
+  // V2 additive fields (undefined for legacy v1 runs)
+  model_version?: string;
+  fit_tier?: string;
+  final_home_xg?: number;
+  final_away_xg?: number;
+  market_coverage_score?: number;
+  used_markets?: string[];
+  missing_markets?: string[];
+  warnings?: string[];
+  knockout_extras?: Record<string, number>;
   recommendations: Recommendation[];
 }
 
@@ -146,6 +181,21 @@ export interface DiagnosticsRow {
   error: number;     // calibrated − market
 }
 
+export interface ConstraintDetail {
+  market_key: string;
+  market_family: string;
+  constraint_type: string;
+  side?: string | null;
+  line?: number | null;
+  target_value: number;
+  fitted_value: number;
+  error: number;
+  weight: number;
+  bookmaker_count: number;
+  quality_label?: string;
+  devig_method?: string;
+}
+
 export interface Diagnostics {
   match_id: string;
   lambda_home: number;
@@ -160,9 +210,24 @@ export interface Diagnostics {
   fit_status: string;
   rows: DiagnosticsRow[];
   warnings: string[];
-  score_matrix: number[][];              // calibrated 6×6
-  prior_matrix?: number[][];             // DC prior 6×6
+  score_matrix: number[][];              // calibrated matrix (v1: 6×6, v2: 13×13)
+  prior_matrix?: number[][];             // prior matrix (same shape as score_matrix)
   expected_points_matrix?: number[][];
+  // V2 additive fields (undefined for legacy v1 runs)
+  model_type?: string;
+  model_version?: string;
+  fit_tier?: string;
+  actual_score_max?: number;
+  candidate_score_max?: number;
+  market_coverage_score?: number;
+  used_markets?: string[];
+  missing_markets?: string[];
+  final_home_xg?: number;
+  final_away_xg?: number;
+  final_total_xg?: number;
+  constraint_count?: number;
+  max_constraint_error?: number;
+  constraint_details?: ConstraintDetail[];
 }
 
 export interface DashboardStats {
@@ -177,10 +242,9 @@ export interface DashboardStats {
 export interface ExportRecord {
   id: string;
   created_at: string;
-  format: 'csv' | 'xlsx';
-  filename: string;
+  format: 'csv' | 'xlsx' | 'excel';
+  filename?: string;
   model_run_id?: string;
-  pool_config_id?: string;
   download_url: string;
   size_bytes?: number;
 }
@@ -192,4 +256,5 @@ export interface AppSettings {
   refresh_hour_utc: number;
   refresh_timezone: string;
   auto_run_optimizer: boolean;
+  odds_api_key_configured: boolean;
 }

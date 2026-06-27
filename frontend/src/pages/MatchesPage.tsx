@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Plus, Upload, Activity } from 'lucide-react';
+import { Upload, Activity, Database, FileDown, Info, X } from 'lucide-react';
 import { matchesApi } from '../api/matches';
-import type { Match } from '../types';
+import type { Match, ImportSummary } from '../types';
 import { DataTable } from '../components/DataTable';
 import { StatusBadge } from '../components/StatusBadge';
 import { FitQualityBadge } from '../components/FitQualityBadge';
@@ -24,6 +24,8 @@ export default function MatchesPage() {
   const [stageFilter, setStageFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importResult, setImportResult] = useState<ImportSummary | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const { data, isLoading } = useQuery({
@@ -37,14 +39,44 @@ export default function MatchesPage() {
       }),
   });
 
+  const handleImportSuccess = (summary: ImportSummary) => {
+    setImportResult(summary);
+    if (summary.errors.length > 0) {
+      toast.info(`${summary.message} (${summary.errors.length} row(s) skipped)`);
+    } else {
+      toast.success(summary.message);
+    }
+    qc.invalidateQueries({ queryKey: ['matches'] });
+    qc.invalidateQueries({ queryKey: ['dashboard'] });
+  };
+
   const importMutation = useMutation({
     mutationFn: (file: File) => matchesApi.importSchedule(file),
-    onSuccess: () => {
-      toast.success('Schedule imported successfully');
-      qc.invalidateQueries({ queryKey: ['matches'] });
-    },
+    onSuccess: handleImportSuccess,
     onError: (e: Error) => toast.error(`Import failed: ${e.message}`),
   });
+
+  const providerImportMutation = useMutation({
+    mutationFn: () => matchesApi.importProviderSchedule(),
+    onSuccess: handleImportSuccess,
+    onError: (e: Error) => toast.error(`Import failed: ${e.message}`),
+  });
+
+  const downloadTemplate = () => {
+    const header =
+      'match_number,stage,group_label,home_team,away_team,kickoff_at,venue,city,country,scoring_basis,is_complete_for_optimization';
+    const sample =
+      '1,group,A,Spain,Japan,2026-06-11T15:00:00Z,SoFi Stadium,Inglewood,USA,ninety_minutes,true';
+    const blob = new Blob([`${header}\n${sample}\n`], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'match-schedule-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importBusy = importMutation.isPending || providerImportMutation.isPending;
 
   const columns = [
     columnHelper.accessor('match_number', {
@@ -156,9 +188,8 @@ export default function MatchesPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            className="btn-secondary"
-            onClick={() => fileRef.current?.click()}
-            disabled={importMutation.isPending}
+            className="btn-primary"
+            onClick={() => setImportOpen((v) => !v)}
           >
             <Upload className="w-4 h-4" />
             Import Schedule
@@ -174,15 +205,107 @@ export default function MatchesPage() {
               e.target.value = '';
             }}
           />
-          <button
-            className="btn-primary"
-            onClick={() => toast.info('Add match form coming soon')}
-          >
-            <Plus className="w-4 h-4" />
-            Add Match
-          </button>
         </div>
       </div>
+
+      {/* Import schedule panel with instructions */}
+      {importOpen && (
+        <div className="card p-5 flex flex-col gap-4 border-l-4 border-l-red-700">
+          <div className="flex items-start justify-between">
+            <div className="flex items-start gap-2">
+              <Info className="w-5 h-5 text-red-700 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Import the match schedule</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Choose one of the two methods below. You can re-import at any time —
+                  existing matches (matched by match number or provider event ID) are
+                  updated rather than duplicated.
+                </p>
+              </div>
+            </div>
+            <button
+              className="text-slate-400 hover:text-slate-600"
+              onClick={() => setImportOpen(false)}
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Method 1: provider */}
+            <div className="rounded-xl border border-slate-200 p-4 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <Database className="w-4 h-4 text-red-700" />
+                Option A — From The Odds API
+              </div>
+              <p className="text-xs text-slate-500">
+                Pulls the official fixtures directly from your configured odds provider.
+                This also links each match to its odds event, so <strong>Refresh Odds</strong>{' '}
+                works automatically afterwards. Requires <code className="font-mono">ODDS_API_KEY</code>{' '}
+                to be set.
+              </p>
+              <button
+                className="btn-primary self-start mt-1"
+                onClick={() => providerImportMutation.mutate()}
+                disabled={importBusy}
+              >
+                <Database className="w-4 h-4" />
+                {providerImportMutation.isPending ? 'Importing…' : 'Import from provider'}
+              </button>
+            </div>
+
+            {/* Method 2: file */}
+            <div className="rounded-xl border border-slate-200 p-4 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <Upload className="w-4 h-4 text-red-700" />
+                Option B — Upload a CSV or JSON file
+              </div>
+              <p className="text-xs text-slate-500">
+                Upload your own schedule. The CSV needs a header row with columns:
+                <code className="font-mono block mt-1 text-[11px] text-slate-600">
+                  match_number, stage, group_label, home_team, away_team, kickoff_at,
+                  venue, city, country, scoring_basis, is_complete_for_optimization
+                </code>
+                Only <strong>stage</strong>, <strong>home_team</strong> and{' '}
+                <strong>away_team</strong> are required. Teams are created automatically.
+              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  className="btn-primary"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={importBusy}
+                >
+                  <Upload className="w-4 h-4" />
+                  {importMutation.isPending ? 'Importing…' : 'Choose file'}
+                </button>
+                <button className="btn-secondary" onClick={downloadTemplate}>
+                  <FileDown className="w-4 h-4" />
+                  Download template
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {importResult && (
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">
+              <p className="font-medium text-slate-700">{importResult.message}</p>
+              <p className="mt-1">
+                Created {importResult.created} · Updated {importResult.updated} · New teams{' '}
+                {importResult.teams_created}
+                {importResult.skipped > 0 ? ` · Skipped ${importResult.skipped}` : ''}
+              </p>
+              {importResult.errors.length > 0 && (
+                <ul className="mt-2 list-disc list-inside text-amber-700">
+                  {importResult.errors.slice(0, 5).map((err, i) => (
+                    <li key={i}>{err}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="card p-4 flex flex-wrap items-center gap-4">

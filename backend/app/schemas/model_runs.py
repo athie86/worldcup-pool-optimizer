@@ -18,6 +18,7 @@ class ScoreRecommendationOut(BaseModel):
     zero_point_probability: Optional[float] = None
     score_probability: Optional[float] = None
     scoring_breakdown: Optional[dict] = None
+    penalties_winner: Optional[str] = None
 
 
 class MatchModelFitOut(BaseModel):
@@ -38,6 +39,21 @@ class MatchModelFitOut(BaseModel):
     fit_status: Optional[str] = None
     diagnostics: Optional[dict] = None
     score_matrix: Optional[list] = None
+    # ── V2 additive fields (null for legacy v1 rows) ────────────────────────
+    model_type: Optional[str] = None
+    model_version: Optional[str] = None
+    fit_tier: Optional[str] = None
+    final_home_xg: Optional[float] = None
+    final_away_xg: Optional[float] = None
+    final_total_xg: Optional[float] = None
+    calibrated_error: Optional[float] = None
+    max_constraint_error: Optional[float] = None
+    constraint_count: Optional[int] = None
+    market_coverage_score: Optional[float] = None
+    actual_score_max: Optional[int] = None
+    candidate_score_max: Optional[int] = None
+    tail_mass: Optional[float] = None
+    used_markets: Optional[list] = None
     score_recommendations: list[ScoreRecommendationOut] = []
 
 
@@ -60,6 +76,44 @@ class ModelRunCreate(BaseModel):
     odds_snapshot_id: Optional[uuid.UUID] = None
     run_type: str = "manual"
     parameters: Optional[dict] = None
+
+
+class RecommendationItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    rank: int
+    predicted_home_goals: int
+    predicted_away_goals: int
+    expected_points: Optional[float] = None
+    variance_points: Optional[float] = None
+    zero_point_probability: Optional[float] = None
+    score_probability: Optional[float] = None
+    scoring_breakdown: Optional[dict] = None
+    penalties_winner: Optional[str] = None
+
+
+class MatchRecommendationOut(BaseModel):
+    """Recommendations grouped per match (what the Optimizer page renders)."""
+    match_id: uuid.UUID
+    home_team: Optional[str] = None
+    away_team: Optional[str] = None
+    kickoff_at: Optional[datetime] = None
+    stage: Optional[str] = None
+    scoring_basis: Optional[str] = None
+    lambda_home: Optional[float] = None
+    lambda_away: Optional[float] = None
+    fit_status: Optional[str] = None
+    # ── V2 additive fields ──────────────────────────────────────────────────
+    model_version: Optional[str] = None
+    fit_tier: Optional[str] = None
+    final_home_xg: Optional[float] = None
+    final_away_xg: Optional[float] = None
+    market_coverage_score: Optional[float] = None
+    used_markets: Optional[list] = None
+    missing_markets: Optional[list] = None
+    warnings: Optional[list] = None
+    knockout_extras: Optional[dict] = None
+    recommendations: list[RecommendationItem] = []
 
 
 class ModelRunWithFits(ModelRunOut):
@@ -88,5 +142,20 @@ class DiagnosticsOut(BaseModel):
     fit_status: str
     rows: list[DiagnosticsRow]
     warnings: list[str]
-    score_matrix: list[list[float]]         # calibrated 6×6
+    score_matrix: list[list[float]]         # calibrated matrix (v1: 6×6, v2: 13×13)
     prior_matrix: Optional[list[list[float]]] = None
+    # ── V2 additive fields ──────────────────────────────────────────────────
+    model_type: Optional[str] = None
+    model_version: Optional[str] = None
+    fit_tier: Optional[str] = None
+    actual_score_max: Optional[int] = None
+    candidate_score_max: Optional[int] = None
+    market_coverage_score: Optional[float] = None
+    used_markets: Optional[list[str]] = None
+    missing_markets: Optional[list[str]] = None
+    final_home_xg: Optional[float] = None
+    final_away_xg: Optional[float] = None
+    final_total_xg: Optional[float] = None
+    constraint_count: Optional[int] = None
+    max_constraint_error: Optional[float] = None
+    constraint_details: Optional[list[dict]] = None

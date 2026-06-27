@@ -11,12 +11,35 @@ import { useToastContext } from '../components/Toast';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 
-function RecommendationRow({ rec }: { rec: Recommendation }) {
+const STAGE_LABELS: Record<string, string> = {
+  round_of_32: 'R32',
+  round_of_16: 'R16',
+  quarter_final: 'QF',
+  semi_final: 'SF',
+  final: 'F',
+  third_place: '3rd',
+};
+
+function StageBadge({ stage }: { stage?: string }) {
+  if (!stage || stage === 'group') return null;
+  return (
+    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 ml-1">
+      {STAGE_LABELS[stage] ?? stage.toUpperCase()}
+    </span>
+  );
+}
+
+function RecommendationRow({ rec, isKnockout }: { rec: Recommendation; isKnockout?: boolean }) {
   return (
     <tr className="bg-blue-50/30 border-b border-blue-100">
       <td className="px-3 py-1.5 pl-8 text-xs text-slate-500">#{rec.rank}</td>
       <td colSpan={2} className="px-3 py-1.5 font-mono text-sm font-semibold text-slate-800">
         {rec.predicted_home_goals}–{rec.predicted_away_goals}
+        {isKnockout && rec.penalties_winner && (
+          <span className="ml-2 text-[10px] font-normal text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+            Pen: {rec.penalties_winner}
+          </span>
+        )}
       </td>
       <td className="px-3 py-1.5 font-mono text-sm text-green-700 font-semibold">
         {rec.expected_points.toFixed(3)}
@@ -30,7 +53,7 @@ function RecommendationRow({ rec }: { rec: Recommendation }) {
       <td className="px-3 py-1.5 font-mono text-xs text-slate-500">
         {(rec.score_probability * 100).toFixed(2)}%
       </td>
-      <td colSpan={2} />
+      <td colSpan={3} />
     </tr>
   );
 }
@@ -43,6 +66,7 @@ export default function OptimizerPage() {
   const [configId, setConfigId] = useState('');
   const [snapshotId, setSnapshotId] = useState('');
   const [topN, setTopN] = useState(3);
+  const [modelVersion, setModelVersion] = useState('v2');
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [runId, setRunId] = useState<string>('');
 
@@ -73,6 +97,7 @@ export default function OptimizerPage() {
         pool_config_id: configId || (configs?.find((c) => c.active)?.id ?? configs?.[0]?.id ?? ''),
         odds_snapshot_id: snapshotId || undefined,
         top_n: topN,
+        model_version: modelVersion,
       }),
     onSuccess: (run) => {
       toast.success('Optimizer run started');
@@ -99,7 +124,7 @@ export default function OptimizerPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-800">Optimizer</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Run the Poisson model optimizer</p>
+          <p className="text-sm text-slate-500 mt-0.5">Run the score-prediction model optimizer</p>
         </div>
       </div>
 
@@ -117,6 +142,18 @@ export default function OptimizerPage() {
                 {c.name} {c.active ? '(active)' : ''}
               </option>
             ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1 min-w-[200px]">
+          <label className="label">Prediction Model</label>
+          <select
+            className="input text-sm"
+            value={modelVersion}
+            onChange={(e) => setModelVersion(e.target.value)}
+          >
+            <option value="v2">V2 — Market-calibrated (full grid)</option>
+            <option value="v1">V1 — Dixon-Coles (legacy)</option>
           </select>
         </div>
 
@@ -226,6 +263,7 @@ export default function OptimizerPage() {
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">E[Pts]</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">P(0pts)</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">Variance</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">Model</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">Fit</th>
                     <th className="px-3 py-2.5 w-16" />
                   </tr>
@@ -256,6 +294,7 @@ export default function OptimizerPage() {
                           <div className="flex flex-col gap-0.5">
                             <span className="font-medium text-slate-800">
                               {rec.home_team} vs {rec.away_team}
+                              <StageBadge stage={rec.stage} />
                             </span>
                             {rec.kickoff_at && (
                               <span className="text-xs text-slate-400 font-mono">
@@ -269,10 +308,17 @@ export default function OptimizerPage() {
                         </td>
                         <td className="px-3 py-2.5">
                           {rec.recommendations[0] ? (
-                            <span className="font-mono font-bold text-slate-800">
-                              {rec.recommendations[0].predicted_home_goals}–
-                              {rec.recommendations[0].predicted_away_goals}
-                            </span>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-mono font-bold text-slate-800">
+                                {rec.recommendations[0].predicted_home_goals}–
+                                {rec.recommendations[0].predicted_away_goals}
+                              </span>
+                              {rec.stage && rec.stage !== 'group' && rec.recommendations[0].penalties_winner && (
+                                <span className="text-[10px] font-normal text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-fit">
+                                  Pen: {rec.recommendations[0].penalties_winner}
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
@@ -297,6 +343,16 @@ export default function OptimizerPage() {
                             : '—'}
                         </td>
                         <td className="px-3 py-2.5">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-semibold text-slate-600">
+                              {rec.model_version ? `v${rec.model_version.split('.')[0]}` : 'v1'}
+                            </span>
+                            {rec.fit_tier && (
+                              <span className="text-[10px] font-mono text-slate-400">{rec.fit_tier}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
                           <FitQualityBadge status={rec.fit_status} />
                         </td>
                         <td className="px-3 py-2.5">
@@ -313,7 +369,11 @@ export default function OptimizerPage() {
                       </tr>
                       {expandedRows.has(rec.match_id) &&
                         rec.recommendations.slice(1).map((r) => (
-                          <RecommendationRow key={`${rec.match_id}-${r.rank}`} rec={r} />
+                          <RecommendationRow
+                            key={`${rec.match_id}-${r.rank}`}
+                            rec={r}
+                            isKnockout={!!rec.stage && rec.stage !== 'group'}
+                          />
                         ))}
                     </React.Fragment>
                   ))}

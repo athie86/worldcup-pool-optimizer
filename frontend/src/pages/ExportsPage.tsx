@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createColumnHelper } from '@tanstack/react-table';
 import { FileText, FileSpreadsheet, Download } from 'lucide-react';
 import { exportsApi } from '../api/exports';
-import { poolConfigsApi } from '../api/poolConfigs';
 import { modelRunsApi } from '../api/modelRuns';
 import type { ExportRecord } from '../types';
 import { DataTable } from '../components/DataTable';
@@ -27,23 +26,17 @@ export default function ExportsPage() {
     queryFn: exportsApi.list,
   });
 
-  const { data: configs } = useQuery({
-    queryKey: ['pool-configs'],
-    queryFn: poolConfigsApi.list,
-  });
-
   const { data: runs } = useQuery({
     queryKey: ['model-runs'],
     queryFn: modelRunsApi.list,
   });
 
   const createExport = useMutation({
-    mutationFn: (format: 'csv' | 'xlsx') =>
-      exportsApi.create({
-        format,
-        pool_config_id: configs?.find((c) => c.active)?.id,
-        model_run_id: runs?.[0]?.id,
-      }),
+    mutationFn: (fmt: 'csv' | 'xlsx') => {
+      const runId = runs?.[0]?.id;
+      if (!runId) throw new Error('No model run available. Run the optimizer first.');
+      return exportsApi.create({ format: fmt, model_run_id: runId });
+    },
     onSuccess: (record) => {
       toast.success('Export created successfully');
       qc.invalidateQueries({ queryKey: ['exports'] });

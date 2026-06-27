@@ -10,80 +10,15 @@ from sqlalchemy.orm import selectinload
 
 from .db.session import AsyncSessionLocal
 from .db import models
-from .core.security import hash_password
 from .services.scoring import ScoringRule as SvcScoringRule
-from .services.poisson_model import fit_poisson, MarketProbabilities
+from .services.score_model import fit_score_model, MarketProbabilities
 from .services.optimizer import compute_expected_points
 from .services.odds_normalization import compute_consensus, BookmakerMarket, RawOutcome
 from .core.logging import logger
+from .core.defaults import DEFAULT_SCORING_RULES
 
 
-SCORING_RULES_SEED = [
-    {
-        "code": "exact_score",
-        "label": "Exact Score",
-        "description": "Predict the exact final score (90 min)",
-        "points": 10.0,
-        "enabled": True,
-        "display_specificity_rank": 1,
-    },
-    {
-        "code": "correct_winner_goal_difference",
-        "label": "Correct Winner + Goal Difference",
-        "description": "Correct winner and correct goal difference (not exact score)",
-        "points": 6.0,
-        "enabled": True,
-        "display_specificity_rank": 2,
-    },
-    {
-        "code": "correct_winner_winner_goals",
-        "label": "Correct Winner + Winner's Goals",
-        "description": "Correct winner and correct goals for winning team (not exact score)",
-        "points": 5.0,
-        "enabled": True,
-        "display_specificity_rank": 3,
-    },
-    {
-        "code": "correct_winner_basic_a",
-        "label": "Correct Winner (A)",
-        "description": "Correct winner, wrong goal difference",
-        "points": 3.0,
-        "enabled": True,
-        "display_specificity_rank": 4,
-    },
-    {
-        "code": "correct_winner_basic_b",
-        "label": "Correct Winner (B)",
-        "description": "Correct winner, wrong goals for winner",
-        "points": 3.0,
-        "enabled": True,
-        "display_specificity_rank": 5,
-    },
-    {
-        "code": "correct_draw",
-        "label": "Correct Draw",
-        "description": "Predicted draw and it was a draw (not exact score)",
-        "points": 4.0,
-        "enabled": True,
-        "display_specificity_rank": 6,
-    },
-    {
-        "code": "wrong_result_team_goal",
-        "label": "Wrong Result, One Team's Goals Correct",
-        "description": "Wrong result but one team's goal count matches",
-        "points": 1.0,
-        "enabled": True,
-        "display_specificity_rank": 7,
-    },
-    {
-        "code": "wrong_result",
-        "label": "Wrong Result",
-        "description": "Catch-all: wrong result, no partial credit",
-        "points": 0.0,
-        "enabled": True,
-        "display_specificity_rank": 8,
-    },
-]
+SCORING_RULES_SEED = DEFAULT_SCORING_RULES
 
 TEAMS_SEED = [
     {"fifa_code": "ESP", "name": "Spain", "short_name": "ESP", "flag_emoji": "🇪🇸", "group_label": "A"},
@@ -139,17 +74,7 @@ MATCHES_SEED = [
 
 async def seed():
     async with AsyncSessionLocal() as db:
-        # 1. Admin user
-        user_result = await db.execute(select(models.User).where(models.User.username == "admin"))
-        existing_user = user_result.scalar_one_or_none()
-        if not existing_user:
-            user = models.User(username="admin", password_hash=hash_password("admin123"))
-            db.add(user)
-            print("Created admin user")
-        else:
-            print("Admin user already exists")
-
-        # 2. Teams
+        # 1. Teams
         team_map: dict[str, models.Team] = {}
         for t in TEAMS_SEED:
             result = await db.execute(select(models.Team).where(models.Team.name == t["name"]))
@@ -447,7 +372,7 @@ async def seed():
                 print(f"  Match #{match.match_number}: no odds, skipping")
                 continue
 
-            fit = fit_poisson(market_probs)
+            fit = fit_score_model(market_probs)
 
             model_fit = models.MatchModelFit(
                 model_run_id=run.id,
@@ -468,7 +393,14 @@ async def seed():
             db.add(model_fit)
             await db.flush()
 
-            recs = compute_expected_points(fit, rules, pool_config.candidate_max_goals)
+            recs = compute_expected_points(
+                fit,
+                rules,
+                pool_config.candidate_max_goals,
+                scoring_mode=pool_config.scoring_mode,
+                binary_result_points=float(pool_config.binary_result_points),
+                binary_total_goals_points=float(pool_config.binary_total_goals_points),
+            )
             for rec in recs:
                 sr = models.ScoreRecommendation(
                     match_model_fit_id=model_fit.id,
