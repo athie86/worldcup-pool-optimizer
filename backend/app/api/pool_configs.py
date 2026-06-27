@@ -312,6 +312,16 @@ async def get_scoring_rules(
         await _ensure_default_rules(db, config_id)
         await db.commit()
         rules = await _load_rules(db, config_id)
+    else:
+        # Presets created before knockout support only have group rules. Auto-seed
+        # the missing knockout rules without touching the user's custom group values.
+        existing_phases = {r.phase for r in rules}
+        if "knockout" not in existing_phases:
+            ko_defaults = [r for r in get_default_rules() if r["phase"] == "knockout"]
+            for rule_data in ko_defaults:
+                db.add(models.ScoringRule(pool_config_id=config_id, **rule_data))
+            await db.commit()
+            rules = await _load_rules(db, config_id)
     return rules
 
 
