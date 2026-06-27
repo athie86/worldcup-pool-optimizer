@@ -603,7 +603,7 @@ function RulesetEditor({
           />
           <PhaseSection
             title="Knockout Stage"
-            subtitle="Round-of-32 through the final. The last two components (advance, penalty winner) are exclusive to knockouts and are summed on top."
+            subtitle="Round-of-32 through the final. Two knockout-only bonuses (advance, penalty winner) are added on top of the score — see the highlighted section below the table."
             combineMode={config.knockout_combine_mode}
             cap={config.knockout_cap}
             onCombineChange={(v) => onConfigChange({ knockout_combine_mode: v })}
