@@ -226,7 +226,8 @@ async def get_match_market_odds(
         .options(
             selectinload(models.OddsEvent.bookmaker_markets).selectinload(
                 models.BookmakerMarket.market_outcomes
-            )
+            ),
+            selectinload(models.OddsEvent.odds_snapshot),
         )
         .where(models.OddsEvent.match_id == match_id)
         .order_by(models.OddsSnapshot.fetched_at.desc())
