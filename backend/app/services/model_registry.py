@@ -22,6 +22,7 @@ from .score_model import (
 )
 from .market_score_model_v2 import fit_market_score_model_v2, MODEL_TYPE as V2_TYPE
 from .fundamental_prior import FundamentalInputs
+from .knockout_model import KnockoutExtras, compute_knockout_extras
 from .odds_normalization import BookmakerMarket
 from ..core.logging import logger
 
@@ -119,3 +120,45 @@ def fit(
         logger.error("model_registry: v1 fit failed", error=str(exc))
 
     return _neutral_fallback(actual_score_max)
+
+
+def fit_with_knockout_extras(
+    model_version: str,
+    market: MarketProbabilities,
+    bookmaker_markets: Optional[list[BookmakerMarket]] = None,
+    *,
+    fundamental_inputs: Optional[FundamentalInputs] = None,
+    scoring_basis: str = "ninety_minutes",
+    actual_score_max: int = 12,
+    candidate_score_max: int = 5,
+    devig_method: str = "auto",
+    default_auto_devig: str = "power",
+    enable_fundamental: bool = True,
+    enable_asian_lines: bool = True,
+    v1_fallback_enabled: bool = True,
+) -> tuple[CalibratedModelResult, Optional[KnockoutExtras]]:
+    """Fit the model and, for non-ninety_minutes matches, compute knockout extras.
+
+    Returns a ``(CalibratedModelResult, KnockoutExtras | None)`` tuple. The
+    extras are None when ``scoring_basis`` is ``'ninety_minutes'``.
+    """
+    result = fit(
+        model_version,
+        market,
+        bookmaker_markets,
+        fundamental_inputs=fundamental_inputs,
+        actual_score_max=actual_score_max,
+        candidate_score_max=candidate_score_max,
+        devig_method=devig_method,
+        default_auto_devig=default_auto_devig,
+        enable_fundamental=enable_fundamental,
+        enable_asian_lines=enable_asian_lines,
+        v1_fallback_enabled=v1_fallback_enabled,
+    )
+    extras = compute_knockout_extras(
+        result.score_matrix,
+        result.lambda_home,
+        result.lambda_away,
+        scoring_basis,
+    )
+    return result, extras

@@ -16,7 +16,7 @@ from ..schemas.pool_configs import (
     ScoringRulePatch,
     ScoringRuleOut,
 )
-from ..core.defaults import DEFAULT_SCORING_RULES
+from ..core.defaults import get_default_rules
 from .deps import get_current_user
 
 router = APIRouter()
@@ -24,7 +24,7 @@ router = APIRouter()
 
 async def _ensure_default_rules(db: AsyncSession, config_id: uuid.UUID) -> None:
     """Seed the canonical default scoring rules for a config that has none."""
-    for rule_data in DEFAULT_SCORING_RULES:
+    for rule_data in get_default_rules():
         db.add(models.ScoringRule(pool_config_id=config_id, **rule_data))
 
 
@@ -127,6 +127,7 @@ async def duplicate_pool_config(
             points=rule.points,
             enabled=rule.enabled,
             display_specificity_rank=rule.display_specificity_rank,
+            phase=rule.phase,
         ))
 
     if body.active:
@@ -236,16 +237,18 @@ async def upsert_scoring_rules(
     if not config:
         raise HTTPException(status_code=404, detail="Pool config not found")
 
-    # Get existing rules
+    # Get existing rules — keyed by (code, phase) since the same code can exist
+    # in both group and knockout phases with different point values.
     existing_result = await db.execute(
         select(models.ScoringRule).where(models.ScoringRule.pool_config_id == config_id)
     )
-    existing = {r.code: r for r in existing_result.scalars().all()}
+    existing = {(r.code, r.phase): r for r in existing_result.scalars().all()}
 
     updated = []
     for rule_data in rules:
-        if rule_data.code in existing:
-            rule = existing[rule_data.code]
+        key = (rule_data.code, rule_data.phase)
+        if key in existing:
+            rule = existing[key]
             for field, value in rule_data.model_dump().items():
                 setattr(rule, field, value)
         else:

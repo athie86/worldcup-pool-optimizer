@@ -18,6 +18,7 @@ class ScoreRecommendationOut(BaseModel):
     zero_point_probability: Optional[float] = None
     score_probability: Optional[float] = None
     scoring_breakdown: Optional[dict] = None
+    penalties_winner: Optional[str] = None
 
 
 class MatchModelFitOut(BaseModel):
@@ -88,6 +89,7 @@ class RecommendationItem(BaseModel):
     zero_point_probability: Optional[float] = None
     score_probability: Optional[float] = None
     scoring_breakdown: Optional[dict] = None
+    penalties_winner: Optional[str] = None
 
 
 class MatchRecommendationOut(BaseModel):
@@ -96,6 +98,8 @@ class MatchRecommendationOut(BaseModel):
     home_team: Optional[str] = None
     away_team: Optional[str] = None
     kickoff_at: Optional[datetime] = None
+    stage: Optional[str] = None
+    scoring_basis: Optional[str] = None
     lambda_home: Optional[float] = None
     lambda_away: Optional[float] = None
     fit_status: Optional[str] = None
@@ -108,6 +112,7 @@ class MatchRecommendationOut(BaseModel):
     used_markets: Optional[list] = None
     missing_markets: Optional[list] = None
     warnings: Optional[list] = None
+    knockout_extras: Optional[dict] = None
     recommendations: list[RecommendationItem] = []
 
 

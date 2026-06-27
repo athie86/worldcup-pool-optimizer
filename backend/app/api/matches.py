@@ -378,6 +378,8 @@ async def import_provider_schedule(
         logger.error("import_provider_schedule: failed", error=str(exc))
         return ImportSummary(message=f"Failed to fetch schedule from provider: {exc}")
 
+    from ..core.knockout_config import infer_stage, is_placeholder, KNOCKOUT_SCORING_BASIS
+
     resolver = _TeamResolver(db)
     created = updated = 0
     errors: list[str] = []
@@ -385,8 +387,14 @@ async def import_provider_schedule(
         try:
             # Per-event savepoint: one bad fixture won't abort the whole import.
             async with db.begin_nested():
-                home = await resolver.resolve(evt.home_team)
-                away = await resolver.resolve(evt.away_team)
+                stage = infer_stage(evt.commence_time) if evt.commence_time else "group"
+                scoring_basis = KNOCKOUT_SCORING_BASIS.get(stage, "ninety_minutes")
+
+                home_tbd = is_placeholder(evt.home_team)
+                away_tbd = is_placeholder(evt.away_team)
+                home = None if home_tbd else await resolver.resolve(evt.home_team)
+                away = None if away_tbd else await resolver.resolve(evt.away_team)
+
                 res = await db.execute(
                     select(models.Match).where(
                         models.Match.provider_event_id == evt.id
@@ -394,20 +402,37 @@ async def import_provider_schedule(
                 )
                 existing = res.scalar_one_or_none()
                 if existing:
-                    existing.home_team_id = home.id if home else existing.home_team_id
-                    existing.away_team_id = away.id if away else existing.away_team_id
+                    # Only fill in team IDs when we now have real names.
+                    if home and not existing.home_team_id:
+                        existing.home_team_id = home.id
+                        existing.home_placeholder = None
+                    if away and not existing.away_team_id:
+                        existing.away_team_id = away.id
+                        existing.away_placeholder = None
+                    # Preserve placeholder text for teams still TBD.
+                    if not existing.home_team_id:
+                        existing.home_placeholder = existing.home_placeholder or evt.home_team
+                    if not existing.away_team_id:
+                        existing.away_placeholder = existing.away_placeholder or evt.away_team
                     existing.kickoff_at = evt.commence_time or existing.kickoff_at
+                    existing.stage = stage
+                    existing.scoring_basis = scoring_basis
+                    existing.is_complete_for_optimization = bool(
+                        existing.home_team_id and existing.away_team_id
+                    )
                     updated += 1
                 else:
                     db.add(
                         models.Match(
                             provider_event_id=evt.id,
-                            stage="group",
+                            stage=stage,
                             home_team_id=home.id if home else None,
                             away_team_id=away.id if away else None,
+                            home_placeholder=evt.home_team if home_tbd else None,
+                            away_placeholder=evt.away_team if away_tbd else None,
                             kickoff_at=evt.commence_time,
                             status="scheduled",
-                            scoring_basis="ninety_minutes",
+                            scoring_basis=scoring_basis,
                             is_manual=False,
                             is_complete_for_optimization=bool(home and away),
                         )

@@ -40,6 +40,7 @@ export interface ScoringRule {
   points: number;
   enabled: boolean;
   display_specificity_rank: number;
+  phase: string;
 }
 
 export type ScoringMode = 'standard' | 'binary';
@@ -125,6 +126,7 @@ export interface Recommendation {
   rank: number;
   predicted_home_goals: number;
   predicted_away_goals: number;
+  penalties_winner?: string;
   expected_points: number;
   variance_points: number;
   zero_point_probability: number;
@@ -134,6 +136,8 @@ export interface Recommendation {
 
 export interface MatchRecommendation {
   match_id: string;
+  stage?: string;
+  scoring_basis?: string;
   home_team: string;
   away_team: string;
   kickoff_at?: string;
@@ -149,6 +153,7 @@ export interface MatchRecommendation {
   used_markets?: string[];
   missing_markets?: string[];
   warnings?: string[];
+  knockout_extras?: Record<string, number>;
   recommendations: Recommendation[];
 }
 

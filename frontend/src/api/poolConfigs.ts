@@ -23,6 +23,7 @@ export interface DuplicatePoolConfigPayload {
 export interface UpdateScoringRulePayload {
   points?: number;
   enabled?: boolean;
+  phase?: string;
 }
 
 export const poolConfigsApi = {

@@ -16,6 +16,7 @@ class ScoringRuleOut(BaseModel):
     points: float
     enabled: bool
     display_specificity_rank: int
+    phase: str = "group"
     created_at: datetime
     updated_at: datetime
 
@@ -27,6 +28,7 @@ class ScoringRuleCreate(BaseModel):
     points: float
     enabled: bool = True
     display_specificity_rank: int
+    phase: str = "group"
 
 
 class ScoringRuleUpsert(BaseModel):
@@ -36,6 +38,7 @@ class ScoringRuleUpsert(BaseModel):
     points: float
     enabled: bool = True
     display_specificity_rank: int
+    phase: str = "group"
 
 
 class ScoringRulePatch(BaseModel):

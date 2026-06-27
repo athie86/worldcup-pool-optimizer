@@ -7,10 +7,7 @@ stay in sync.
 from __future__ import annotations
 
 
-# The canonical default pool scoring system. `display_specificity_rank` orders
-# the rules from most specific (exact score) to least specific (catch-all) which
-# is also the order the scoring engine evaluates them in.
-DEFAULT_SCORING_RULES: list[dict] = [
+_BASE_RULES: list[dict] = [
     {
         "code": "exact_score",
         "label": "Exact Score",
@@ -92,3 +89,37 @@ DEFAULT_SCORING_RULES: list[dict] = [
         "display_specificity_rank": 10,
     },
 ]
+
+_KNOCKOUT_EXTRA_RULES: list[dict] = [
+    {
+        "code": "knockout_tie_to_penalties",
+        "label": "KO: Correct Tie (Goes to Penalties)",
+        "description": "Predicted draw AND match went to a penalty shootout",
+        "points": 4.0,
+        "enabled": True,
+        "display_specificity_rank": 11,
+        "phase": "knockout",
+    },
+    {
+        "code": "knockout_penalties_winner",
+        "label": "KO: Correct Penalty Winner",
+        "description": "Predicted the team that wins the penalty shootout",
+        "points": 3.0,
+        "enabled": True,
+        "display_specificity_rank": 12,
+        "phase": "knockout",
+    },
+]
+
+
+def get_default_rules() -> list[dict]:
+    """Return the full default rule set: 10 group rules + 10 knockout rules + 2 KO-only rules."""
+    group_rules = [{**r, "phase": "group"} for r in _BASE_RULES]
+    knockout_rules = [{**r, "phase": "knockout"} for r in _BASE_RULES]
+    return group_rules + knockout_rules + _KNOCKOUT_EXTRA_RULES
+
+
+# Backward-compat alias: existing callers that reference DEFAULT_SCORING_RULES
+# now get the full 22-rule list. The phase field is new but ignored by any
+# code that doesn't know about it.
+DEFAULT_SCORING_RULES: list[dict] = get_default_rules()

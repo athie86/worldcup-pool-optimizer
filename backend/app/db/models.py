@@ -90,7 +90,7 @@ class PoolConfig(Base):
 class ScoringRule(Base):
     __tablename__ = "scoring_rules"
     __table_args__ = (
-        UniqueConstraint("pool_config_id", "code", name="uq_scoring_rules_config_code"),
+        UniqueConstraint("pool_config_id", "code", "phase", name="uq_scoring_rules_config_code_phase"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
@@ -101,6 +101,7 @@ class ScoringRule(Base):
     points: Mapped[float] = mapped_column(Numeric(8, 3))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     display_specificity_rank: Mapped[int] = mapped_column(Integer)
+    phase: Mapped[str] = mapped_column(Text, nullable=False, default="group", server_default=text("'group'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -293,6 +294,8 @@ class ScoreRecommendation(Base):
     score_probability: Mapped[Optional[float]] = mapped_column(Numeric(12, 9), nullable=True)
     scoring_breakdown: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    penalties_winner: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     match_model_fit: Mapped["MatchModelFit"] = relationship("MatchModelFit", back_populates="score_recommendations")
 

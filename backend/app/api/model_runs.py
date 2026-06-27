@@ -25,6 +25,7 @@ from ..services.score_model import MarketProbabilities
 from ..services.optimizer import compute_expected_points
 from ..services.odds_normalization import compute_consensus, BookmakerMarket, RawOutcome
 from ..services import model_registry
+from ..services.knockout_model import KnockoutExtras
 from ..services.fundamental_prior import FundamentalInputs
 from ..core.config import settings
 from ..core.logging import logger
@@ -105,17 +106,21 @@ def _compute_all_fits(
     """CPU-bound: fit all models and compute recommendations. Runs in a thread.
 
     Uses the model registry, which selects v1/v2 and falls back safely so a
-    single match can never abort the run.
+    single match can never abort the run. For knockout matches the registry also
+    computes supplementary ET/penalty probabilities used by the optimizer.
     """
     results: dict[uuid.UUID, tuple] = {}
     errors: dict[uuid.UUID, str] = {}
     for match_id, inp in match_inputs_by_id.items():
         try:
-            fit = model_registry.fit(
+            scoring_basis = inp.get("scoring_basis", "ninety_minutes")
+            phase = inp.get("phase", "group")
+            fit, extras = model_registry.fit_with_knockout_extras(
                 model_version,
                 inp["market_probs"],
                 inp["bookmaker_markets"],
                 fundamental_inputs=inp["fundamental"],
+                scoring_basis=scoring_basis,
                 actual_score_max=settings.ACTUAL_SCORE_MAX,
                 candidate_score_max=candidate_max,
                 devig_method=settings.V2_DEVIG_METHOD,
@@ -131,8 +136,10 @@ def _compute_all_fits(
                 scoring_mode=scoring_mode,
                 binary_result_points=binary_result_points,
                 binary_total_goals_points=binary_total_goals_points,
+                phase=phase,
+                knockout_extras=extras,
             )
-            results[match_id] = (fit, recs)
+            results[match_id] = (fit, recs, extras)
         except Exception as exc:
             errors[match_id] = str(exc)
     return results, errors
@@ -154,7 +161,8 @@ async def create_model_run(
     if not pool_config:
         raise HTTPException(status_code=404, detail="Pool config not found")
 
-    # Build scoring rules (pure Python, no DB)
+    # Build scoring rules (pure Python, no DB) — include phase so the scoring
+    # engine can filter correctly for group vs knockout matches.
     rules = [
         SvcScoringRule(
             code=r.code,
@@ -162,6 +170,7 @@ async def create_model_run(
             points=float(r.points),
             enabled=r.enabled,
             display_specificity_rank=r.display_specificity_rank,
+            phase=getattr(r, "phase", "group"),
         )
         for r in pool_config.scoring_rules
     ]
@@ -263,10 +272,14 @@ async def create_model_run(
             neutral_venue=True,  # World Cup matches are on neutral ground by default
             stage=_STAGE_MAP.get((match.stage or "group").lower(), "group"),
         )
+        stage = (match.stage or "group").lower()
+        phase = "group" if stage == "group" else "knockout"
         match_inputs_by_id[match.id] = {
             "market_probs": mp,
             "bookmaker_markets": bk_markets,
             "fundamental": fundamental,
+            "scoring_basis": match.scoring_basis or "ninety_minutes",
+            "phase": phase,
         }
 
     if not match_inputs_by_id:
@@ -296,9 +309,22 @@ async def create_model_run(
         if match.id not in fit_results:
             continue
         mp = match_inputs_by_id[match.id]["market_probs"]
-        fit, recs = fit_results[match.id]
+        fit, recs, extras = fit_results[match.id]
         try:
-            constraint_details = (fit.diagnostics or {}).get("constraint_details")
+            # Merge knockout extras into diagnostics before persisting.
+            diagnostics = dict(fit.diagnostics or {})
+            if extras is not None:
+                diagnostics["knockout_extras"] = {
+                    "p_draw_90": extras.p_draw_90,
+                    "p_home_wins_et": extras.p_home_wins_et,
+                    "p_away_wins_et": extras.p_away_wins_et,
+                    "p_still_draw_after_et": extras.p_still_draw_after_et,
+                    "p_home_wins_penalties": extras.p_home_wins_penalties,
+                    "p_away_wins_penalties": extras.p_away_wins_penalties,
+                    "p_goes_to_penalties": extras.p_goes_to_penalties,
+                    "optimal_penalties_winner": extras.optimal_penalties_winner,
+                }
+            constraint_details = diagnostics.get("constraint_details")
             model_fit = models.MatchModelFit(
                 model_run_id=run.id,
                 match_id=match.id,
@@ -312,7 +338,7 @@ async def create_model_run(
                 market_away_win_prob=mp.away_win,
                 fit_error=fit.loss,
                 fit_status=fit.fit_status,
-                diagnostics=fit.diagnostics,
+                diagnostics=diagnostics,
                 score_matrix=fit.score_matrix.tolist(),
                 # ── V2 additive fields (None for v1 runs) ───────────────────
                 model_type=fit.model_type,
@@ -334,7 +360,7 @@ async def create_model_run(
                 prior_score_matrix=(
                     fit.prior_matrix.tolist() if fit.prior_matrix is not None else None
                 ),
-                calibration_parameters=(fit.diagnostics or {}).get("calibration", {}).get("parameters"),
+                calibration_parameters=diagnostics.get("calibration", {}).get("parameters"),
             )
             db.add(model_fit)
             await db.flush()
@@ -371,6 +397,7 @@ async def create_model_run(
                     zero_point_probability=rec.zero_point_probability,
                     score_probability=rec.score_probability,
                     scoring_breakdown=rec.scoring_breakdown,
+                    penalties_winner=rec.penalties_winner,
                 )
                 db.add(sr)
 
@@ -472,6 +499,8 @@ async def get_recommendations(
                 home_team=home,
                 away_team=away,
                 kickoff_at=match.kickoff_at if match else None,
+                stage=match.stage if match else None,
+                scoring_basis=match.scoring_basis if match else None,
                 lambda_home=float(fit.lambda_home) if fit.lambda_home is not None else None,
                 lambda_away=float(fit.lambda_away) if fit.lambda_away is not None else None,
                 fit_status=fit.fit_status,
@@ -485,6 +514,7 @@ async def get_recommendations(
                 used_markets=fit.used_markets or diag.get("used_markets"),
                 missing_markets=diag.get("missing_markets"),
                 warnings=diag.get("warnings"),
+                knockout_extras=diag.get("knockout_extras"),
                 recommendations=[
                     RecommendationItem(
                         rank=r.rank,
@@ -495,6 +525,7 @@ async def get_recommendations(
                         zero_point_probability=float(r.zero_point_probability) if r.zero_point_probability is not None else None,
                         score_probability=float(r.score_probability) if r.score_probability is not None else None,
                         scoring_breakdown=r.scoring_breakdown,
+                        penalties_winner=r.penalties_winner,
                     )
                     for r in recs
                 ],

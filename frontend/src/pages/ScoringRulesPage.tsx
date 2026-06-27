@@ -399,16 +399,33 @@ export default function ScoringRulesPage() {
             </div>
           )}
 
-          {/* Standard mode: editable rule table */}
+          {/* Standard mode: editable rule tables split by phase */}
           {!isBinary &&
             (isLoading ? (
               <div className="card p-8 text-center text-slate-400">Loading rules...</div>
             ) : rules ? (
-              <EditableScoringTable
-                rules={rules}
-                onChange={handleChange}
-                loading={updateRule.isPending}
-              />
+              <>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-2">Group Stage Rules</h3>
+                  <EditableScoringTable
+                    rules={rules.filter((r) => r.phase === 'group')}
+                    onChange={handleChange}
+                    loading={updateRule.isPending}
+                  />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-2">Knockout Stage Rules</h3>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Applied to round-of-32, round-of-16, quarter-finals, semi-finals, and finals.
+                    The last two rules are exclusive to knockout matches.
+                  </p>
+                  <EditableScoringTable
+                    rules={rules.filter((r) => r.phase === 'knockout')}
+                    onChange={handleChange}
+                    loading={updateRule.isPending}
+                  />
+                </div>
+              </>
             ) : (
               <div className="card p-8 text-center text-slate-400">Select a preset</div>
             ))}

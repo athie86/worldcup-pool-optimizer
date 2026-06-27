@@ -11,12 +11,35 @@ import { useToastContext } from '../components/Toast';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 
-function RecommendationRow({ rec }: { rec: Recommendation }) {
+const STAGE_LABELS: Record<string, string> = {
+  round_of_32: 'R32',
+  round_of_16: 'R16',
+  quarter_final: 'QF',
+  semi_final: 'SF',
+  final: 'F',
+  third_place: '3rd',
+};
+
+function StageBadge({ stage }: { stage?: string }) {
+  if (!stage || stage === 'group') return null;
+  return (
+    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 ml-1">
+      {STAGE_LABELS[stage] ?? stage.toUpperCase()}
+    </span>
+  );
+}
+
+function RecommendationRow({ rec, isKnockout }: { rec: Recommendation; isKnockout?: boolean }) {
   return (
     <tr className="bg-blue-50/30 border-b border-blue-100">
       <td className="px-3 py-1.5 pl-8 text-xs text-slate-500">#{rec.rank}</td>
       <td colSpan={2} className="px-3 py-1.5 font-mono text-sm font-semibold text-slate-800">
         {rec.predicted_home_goals}–{rec.predicted_away_goals}
+        {isKnockout && rec.penalties_winner && (
+          <span className="ml-2 text-[10px] font-normal text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+            Pen: {rec.penalties_winner}
+          </span>
+        )}
       </td>
       <td className="px-3 py-1.5 font-mono text-sm text-green-700 font-semibold">
         {rec.expected_points.toFixed(3)}
@@ -271,6 +294,7 @@ export default function OptimizerPage() {
                           <div className="flex flex-col gap-0.5">
                             <span className="font-medium text-slate-800">
                               {rec.home_team} vs {rec.away_team}
+                              <StageBadge stage={rec.stage} />
                             </span>
                             {rec.kickoff_at && (
                               <span className="text-xs text-slate-400 font-mono">
@@ -284,10 +308,17 @@ export default function OptimizerPage() {
                         </td>
                         <td className="px-3 py-2.5">
                           {rec.recommendations[0] ? (
-                            <span className="font-mono font-bold text-slate-800">
-                              {rec.recommendations[0].predicted_home_goals}–
-                              {rec.recommendations[0].predicted_away_goals}
-                            </span>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-mono font-bold text-slate-800">
+                                {rec.recommendations[0].predicted_home_goals}–
+                                {rec.recommendations[0].predicted_away_goals}
+                              </span>
+                              {rec.stage && rec.stage !== 'group' && rec.recommendations[0].penalties_winner && (
+                                <span className="text-[10px] font-normal text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded w-fit">
+                                  Pen: {rec.recommendations[0].penalties_winner}
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
@@ -338,7 +369,11 @@ export default function OptimizerPage() {
                       </tr>
                       {expandedRows.has(rec.match_id) &&
                         rec.recommendations.slice(1).map((r) => (
-                          <RecommendationRow key={`${rec.match_id}-${r.rank}`} rec={r} />
+                          <RecommendationRow
+                            key={`${rec.match_id}-${r.rank}`}
+                            rec={r}
+                            isKnockout={!!rec.stage && rec.stage !== 'group'}
+                          />
                         ))}
                     </React.Fragment>
                   ))}
