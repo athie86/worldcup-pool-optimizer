@@ -40,7 +40,7 @@ function ToastContainer({
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full">
+    <div className="fixed bottom-4 right-4 left-4 sm:left-auto z-50 flex flex-col gap-2 sm:max-w-sm sm:w-full pb-safe-b">
       {toasts.map((t) => (
         <ToastItem key={t.id} toast={t} onRemove={onRemove} />
       ))}
@@ -72,7 +72,8 @@ function ToastItem({ toast, onRemove }: { toast: ToastItem; onRemove: (id: strin
       <span className="flex-1 text-sm text-slate-800">{toast.message}</span>
       <button
         onClick={() => onRemove(toast.id)}
-        className="text-slate-400 hover:text-slate-600 transition-colors"
+        aria-label="Dismiss notification"
+        className="-m-1 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-black/5 transition-colors shrink-0"
       >
         <X className="w-4 h-4" />
       </button>

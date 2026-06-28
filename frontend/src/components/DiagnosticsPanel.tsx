@@ -180,8 +180,8 @@ export function DiagnosticsPanel({
               Dixon-Coles prior vs entropy-calibrated final matrix
             </p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto scroll-touch">
+            <table className="w-full min-w-[480px] text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
                   <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">
@@ -241,8 +241,8 @@ export function DiagnosticsPanel({
               De-vigged consensus targets vs the calibrated model
             </p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto scroll-touch">
+            <table className="w-full min-w-[680px] text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
                   <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Market</th>

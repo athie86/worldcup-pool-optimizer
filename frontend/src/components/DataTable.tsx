@@ -11,12 +11,18 @@ import {
 import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import clsx from 'clsx';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface DataTableProps<TData> {
   data: TData[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   columns: ColumnDef<TData, any>[];
   pageSize?: number;
   className?: string;
+  /**
+   * Optional mobile card renderer. When provided, the table is hidden below `lg`
+   * and rows render as stacked cards instead — sharing the same sorted/paginated
+   * row model so sorting and pagination still apply.
+   */
+  renderMobileCard?: (row: TData) => React.ReactNode;
 }
 
 export function DataTable<TData>({
@@ -24,6 +30,7 @@ export function DataTable<TData>({
   columns,
   pageSize = 20,
   className,
+  renderMobileCard,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
 
@@ -38,9 +45,24 @@ export function DataTable<TData>({
     initialState: { pagination: { pageSize } },
   });
 
+  const rows = table.getRowModel().rows;
+
   return (
     <div className={clsx('flex flex-col', className)}>
-      <div className="overflow-x-auto">
+      {/* Mobile card list (only when a renderer is supplied) */}
+      {renderMobileCard && (
+        <div className="lg:hidden flex flex-col gap-3">
+          {rows.length === 0 ? (
+            <div className="px-3 py-8 text-center text-sm text-slate-400">No data available</div>
+          ) : (
+            rows.map((row) => (
+              <div key={row.id}>{renderMobileCard(row.original)}</div>
+            ))
+          )}
+        </div>
+      )}
+
+      <div className={clsx('overflow-x-auto scroll-touch', renderMobileCard && 'hidden lg:block')}>
         <table className="w-full text-sm border-collapse">
           <thead>
             {table.getHeaderGroups().map((hg) => (

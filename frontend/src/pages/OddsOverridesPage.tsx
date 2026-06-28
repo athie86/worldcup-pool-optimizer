@@ -113,7 +113,7 @@ export default function OddsOverridesPage() {
 
       {/* Odds set + match selector */}
       <div className="card p-4 flex flex-wrap items-end gap-4">
-        <div className="flex flex-col gap-1 min-w-[240px]">
+        <div className="flex flex-col gap-1 w-full sm:w-auto sm:min-w-[240px]">
           <label className="label">Odds Set (Refresh)</label>
           <select
             className="input text-sm"
@@ -130,7 +130,7 @@ export default function OddsOverridesPage() {
             ))}
           </select>
         </div>
-        <div className="flex flex-col gap-1 flex-1 min-w-[240px]">
+        <div className="flex flex-col gap-1 flex-1 w-full sm:w-auto sm:min-w-[240px]">
           <label className="label">Select Match</label>
           <select
             className="input text-sm"
@@ -203,7 +203,8 @@ export default function OddsOverridesPage() {
               <div className="px-4 py-3 border-b border-slate-100">
                 <h3 className="text-sm font-semibold text-slate-700">Bookmaker Markets</h3>
               </div>
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto scroll-touch">
+              <table className="w-full min-w-[560px] text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
                     <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Bookmaker</th>
@@ -242,6 +243,7 @@ export default function OddsOverridesPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 

@@ -31,7 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/settings', label: 'Settings', icon: <Settings className="w-4.5 h-4.5" /> },
 ];
 
-export function SidebarNav() {
+export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="flex flex-col gap-0.5 px-3 py-2">
       {NAV_ITEMS.map((item) => (
@@ -39,9 +39,10 @@ export function SidebarNav() {
           key={item.to}
           to={item.to}
           end={item.to === '/'}
+          onClick={onNavigate}
           className={({ isActive }) =>
             clsx(
-              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+              'flex items-center gap-3 px-3 py-3 lg:py-2.5 rounded-lg text-sm font-medium transition-all',
               isActive
                 ? 'bg-red-700 text-white shadow-sm'
                 : 'text-slate-300 hover:bg-white/10 hover:text-white'

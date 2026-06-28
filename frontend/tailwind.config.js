@@ -3,6 +3,15 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      screens: {
+        xs: '475px',
+      },
+      spacing: {
+        'safe-t': 'env(safe-area-inset-top)',
+        'safe-b': 'env(safe-area-inset-bottom)',
+        'safe-l': 'env(safe-area-inset-left)',
+        'safe-r': 'env(safe-area-inset-right)',
+      },
       colors: {
         'red-900': '#7A0019',
         'red-700': '#AA151B',

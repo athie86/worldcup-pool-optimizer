@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ToastProvider } from './components/Toast';
+import { PWAUpdater } from './components/PWAUpdater';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import MatchesPage from './pages/MatchesPage';
@@ -27,6 +28,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
+        <PWAUpdater />
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />

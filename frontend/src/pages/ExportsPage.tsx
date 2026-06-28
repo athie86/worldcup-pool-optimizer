@@ -116,9 +116,44 @@ export default function ExportsPage() {
     }),
   ];
 
+  const renderExportCard = (e: ExportRecord) => {
+    const run = e.model_run_id ? runs?.find((r) => r.id === e.model_run_id) : undefined;
+    return (
+      <div className="card p-4 flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            {e.format === 'xlsx' ? (
+              <FileSpreadsheet className="w-4 h-4 text-green-600 shrink-0" />
+            ) : (
+              <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+            )}
+            <span className="font-mono text-sm text-slate-700 truncate">{e.filename}</span>
+          </div>
+          <span className="uppercase text-xs font-mono font-semibold text-slate-500 shrink-0">
+            {e.format}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 font-mono">
+          <span>{format(new Date(e.created_at), 'MMM d, yyyy HH:mm')}</span>
+          {e.size_bytes !== undefined && <span>· {formatBytes(e.size_bytes)}</span>}
+          {run && <span>· run {format(new Date(run.started_at), 'MMM d HH:mm')}</span>}
+        </div>
+        <a
+          href={exportsApi.download(e.id)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1 flex items-center justify-center gap-1.5 min-h-[40px] text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg"
+        >
+          <Download className="w-4 h-4" />
+          Download
+        </a>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-800">Exports</h2>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -128,13 +163,18 @@ export default function ExportsPage() {
         <ExportButton onExport={(fmt) => createExport.mutate(fmt)} loading={createExport.isPending} />
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="lg:card lg:overflow-hidden">
         {isLoading ? (
           <div className="p-8 text-center text-slate-400">Loading exports...</div>
         ) : exports && exports.length > 0 ? (
-          <DataTable data={exports} columns={columns} pageSize={20} />
+          <DataTable
+            data={exports}
+            columns={columns}
+            pageSize={20}
+            renderMobileCard={renderExportCard}
+          />
         ) : (
-          <div className="p-10 flex flex-col items-center gap-3 text-center">
+          <div className="card overflow-hidden p-10 flex flex-col items-center gap-3 text-center">
             <FileSpreadsheet className="w-10 h-10 text-slate-200" />
             <p className="text-slate-400 text-sm">No exports yet. Create one using the button above.</p>
           </div>

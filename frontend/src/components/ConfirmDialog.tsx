@@ -52,16 +52,17 @@ export function ConfirmDialog({
           </div>
           <button
             onClick={onCancel}
-            className="text-slate-400 hover:text-slate-600 transition-colors"
+            aria-label="Close"
+            className="-mr-1 -mt-1 inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="mt-6 flex justify-end gap-3">
-          <button onClick={onCancel} className="btn-secondary">
+        <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+          <button onClick={onCancel} className="btn-secondary w-full sm:w-auto justify-center">
             {cancelLabel}
           </button>
-          <button onClick={onConfirm} className={confirmBtnClass}>
+          <button onClick={onConfirm} className={`${confirmBtnClass} w-full sm:w-auto justify-center`}>
             {confirmLabel}
           </button>
         </div>

@@ -127,7 +127,8 @@ export function OddsMarketEditor({
         <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
           <h4 className="text-sm font-semibold text-slate-700">Match Result (1X2)</h4>
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto scroll-touch">
+        <table className="w-full min-w-[680px] text-sm">
           <thead>
             <tr className="border-b border-slate-100">
               <th className="px-4 py-2 text-left text-xs text-slate-500 font-medium">Outcome</th>
@@ -186,7 +187,7 @@ export function OddsMarketEditor({
                   </td>
                   <td className="px-4 py-2.5">
                     <button
-                      className="btn-primary px-2 py-1 text-xs"
+                      className="btn-primary px-3 min-h-[40px] min-w-[44px] justify-center text-xs"
                       disabled={!field?.value || loading || saving[k]}
                       onClick={() => handleSave('h2h', undefined, outcomeType)}
                     >
@@ -198,6 +199,7 @@ export function OddsMarketEditor({
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Totals */}
@@ -205,7 +207,8 @@ export function OddsMarketEditor({
         <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
           <h4 className="text-sm font-semibold text-slate-700">Totals (Over/Under)</h4>
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto scroll-touch">
+        <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="border-b border-slate-100">
               <th className="px-4 py-2 text-left text-xs text-slate-500 font-medium">Line</th>
@@ -266,7 +269,7 @@ export function OddsMarketEditor({
                     </td>
                     <td className="px-4 py-2.5">
                       <button
-                        className="btn-primary px-2 py-1 text-xs"
+                        className="btn-primary px-3 min-h-[40px] min-w-[44px] justify-center text-xs"
                         disabled={!field?.value || loading || saving[k]}
                         onClick={() => handleSave('totals', line, outcomeType)}
                       >
@@ -279,6 +282,7 @@ export function OddsMarketEditor({
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

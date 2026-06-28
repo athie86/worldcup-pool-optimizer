@@ -176,10 +176,51 @@ export default function MatchesPage() {
 
   const matches = data?.items ?? [];
 
+  const renderMatchCard = (m: Match) => (
+    <div className="card p-4 flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-semibold text-slate-800">
+          {m.home_team ?? m.home_placeholder ?? '?'}{' '}
+          <span className="text-slate-400 font-normal">vs</span>{' '}
+          {m.away_team ?? m.away_placeholder ?? '?'}
+        </span>
+        <span className="font-mono text-xs text-slate-400 shrink-0">#{m.match_number ?? '—'}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+        <span className="capitalize">{m.stage.replace(/_/g, ' ')}</span>
+        {m.group_label && <span>· Group {m.group_label}</span>}
+        {m.kickoff_at && (
+          <span className="font-mono">· {format(new Date(m.kickoff_at), 'MMM d, HH:mm')}</span>
+        )}
+        {m.venue && <span className="truncate">· {m.venue}</span>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge status={m.status} />
+        {m.fit_status && <FitQualityBadge status={m.fit_status} />}
+        <OverrideBadge hasOverrides={m.has_overrides ?? false} />
+      </div>
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          className="flex-1 min-h-[40px] text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg"
+          onClick={() => navigate(`/odds-overrides?match=${m.id}`)}
+        >
+          Odds
+        </button>
+        <button
+          className="flex-1 min-h-[40px] text-sm text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center justify-center gap-1.5"
+          onClick={() => navigate(`/diagnostics?match=${m.id}`)}
+        >
+          <Activity className="w-4 h-4" />
+          Diagnostics
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-800">Matches</h2>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -188,7 +229,7 @@ export default function MatchesPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            className="btn-primary"
+            className="btn-primary w-full sm:w-auto justify-center"
             onClick={() => setImportOpen((v) => !v)}
           >
             <Upload className="w-4 h-4" />
@@ -308,11 +349,11 @@ export default function MatchesPage() {
       )}
 
       {/* Filters */}
-      <div className="card p-4 flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
+      <div className="card p-4 grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center gap-3 sm:gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
           <label className="text-xs font-medium text-slate-600">Stage</label>
           <select
-            className="input w-40 text-sm"
+            className="input w-full sm:w-40"
             value={stageFilter}
             onChange={(e) => { setStageFilter(e.target.value); setPage(1); }}
           >
@@ -323,10 +364,10 @@ export default function MatchesPage() {
             ))}
           </select>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
           <label className="text-xs font-medium text-slate-600">Status</label>
           <select
-            className="input w-40 text-sm"
+            className="input w-full sm:w-40"
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           >
@@ -339,12 +380,17 @@ export default function MatchesPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="card overflow-hidden">
+      {/* Table (desktop) / card list (mobile) */}
+      <div className="lg:card lg:overflow-hidden">
         {isLoading ? (
           <div className="p-8 text-center text-slate-400">Loading matches...</div>
         ) : (
-          <DataTable data={matches} columns={columns} pageSize={50} />
+          <DataTable
+            data={matches}
+            columns={columns}
+            pageSize={50}
+            renderMobileCard={renderMatchCard}
+          />
         )}
       </div>
     </div>

@@ -35,13 +35,13 @@ export function ScoreHeatmap({
   return (
     <div className="flex flex-col gap-2">
       <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">{title}</span>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto scroll-touch">
         <table className="border-collapse text-xs font-mono">
           <thead>
             <tr>
-              <th className="px-1.5 py-1 text-slate-400 font-normal text-right w-16">H↓ A→</th>
+              <th className="px-1.5 py-1 text-slate-400 font-normal text-right w-12 sm:w-16">H↓ A→</th>
               {Array.from({ length: cols }, (_, j) => (
-                <th key={j} className="px-1.5 py-1 text-slate-500 font-medium w-14 text-center">
+                <th key={j} className="px-1.5 py-1 text-slate-500 font-medium w-10 sm:w-14 text-center">
                   {j}
                 </th>
               ))}
@@ -59,7 +59,7 @@ export function ScoreHeatmap({
                     <td
                       key={j}
                       className={clsx(
-                        'w-14 h-10 text-center tabular-nums transition-all',
+                        'w-10 h-8 sm:w-14 sm:h-10 text-center tabular-nums transition-all',
                         isHighlight && 'ring-2 ring-red-600 ring-inset'
                       )}
                       style={{

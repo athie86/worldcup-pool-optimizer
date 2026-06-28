@@ -95,7 +95,7 @@ export default function DiagnosticsPage() {
       {/* Selectors */}
       <div className="card p-4 flex flex-col gap-4">
         <div className="flex flex-wrap items-end gap-4">
-          <div className="flex flex-col gap-1 min-w-[280px] flex-1">
+          <div className="flex flex-col gap-1 w-full sm:w-auto sm:min-w-[280px] flex-1">
             <label className="label">Model Run</label>
             <select
               className="input text-sm"
@@ -115,7 +115,7 @@ export default function DiagnosticsPage() {
               ))}
             </select>
           </div>
-          <div className="flex flex-col gap-1 min-w-[280px] flex-1">
+          <div className="flex flex-col gap-1 w-full sm:w-auto sm:min-w-[280px] flex-1">
             <label className="label">Match</label>
             <select
               className="input text-sm"

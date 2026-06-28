@@ -20,30 +20,38 @@ interface EditableScoringTableProps {
   combineMode?: CombineMode;
 }
 
-/** Hover/focus tooltip showing what a component means, with an example. */
+/** Tooltip showing what a component means, with an example. Opens on hover
+ *  (desktop) and on tap (touch) so it works without a pointer. */
 function RuleTooltip({ rule }: { rule: ScoringRule }) {
+  const [open, setOpen] = useState(false);
   return (
-    <span className="relative inline-flex group align-middle">
+    <span className="relative inline-flex align-middle">
       <button
         type="button"
-        tabIndex={0}
         aria-label={`What does "${rule.label}" mean?`}
-        className="text-slate-300 hover:text-red-700 focus:text-red-700 focus:outline-none"
+        aria-expanded={open}
+        className="text-slate-300 hover:text-red-700 focus:text-red-700 focus:outline-none p-1 -m-1"
+        onClick={() => setOpen((v) => !v)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onBlur={() => setOpen(false)}
       >
         <Info className="w-4 h-4" />
       </button>
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute left-1/2 z-20 hidden w-64 -translate-x-1/2 translate-y-2 rounded-lg bg-slate-800 px-3 py-2 text-left text-xs text-white shadow-lg group-hover:block group-focus-within:block top-full"
-      >
-        <span className="block font-semibold text-white">{rule.label}</span>
-        {rule.description && (
-          <span className="mt-1 block text-slate-200">{rule.description}</span>
-        )}
-        {rule.example && (
-          <span className="mt-1 block italic text-amber-200">e.g. {rule.example}</span>
-        )}
-      </span>
+      {open && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute left-1/2 z-20 w-64 max-w-[80vw] -translate-x-1/2 translate-y-2 rounded-lg bg-slate-800 px-3 py-2 text-left text-xs text-white shadow-lg top-full"
+        >
+          <span className="block font-semibold text-white">{rule.label}</span>
+          {rule.description && (
+            <span className="mt-1 block text-slate-200">{rule.description}</span>
+          )}
+          {rule.example && (
+            <span className="mt-1 block italic text-amber-200">e.g. {rule.example}</span>
+          )}
+        </span>
+      )}
     </span>
   );
 }
