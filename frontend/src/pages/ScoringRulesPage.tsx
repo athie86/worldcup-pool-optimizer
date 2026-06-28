@@ -555,7 +555,7 @@ function RulesetEditor({
               {config.knockout_scoring_basis === 'ninety_minutes_extra_time' &&
                 'Knockouts score the 120-minute score and result (penalty-shootout goals are never added). The penalty-winner bonus is unavailable.'}
               {config.knockout_scoring_basis === 'ninety_minutes_extra_time_penalties' &&
-                'Score rules use the 120-minute score (penalty goals excluded); correct result uses the advancing team; penalty-winner applies only to predicted draws.'}
+                'Score rules use the 120-minute score and result (penalty goals are never added, so a tie settled on penalties counts as a draw). Advancement is rewarded only by the advance and penalty-winner bonuses; penalty-winner applies only to predicted draws.'}
             </span>
           </label>
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
