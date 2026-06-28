@@ -70,9 +70,12 @@ class TestHorizonMapping:
         assert o == OutcomeHorizon.AFTER_EXTRA_TIME_120
 
     def test_extra_time_penalties(self):
+        # Result-shaped components score on the 120' on-pitch result, not on which
+        # team advances; a penalties-decided tie is a draw for those components.
+        # Advancement is handled solely by the advance / penalty_winner bonuses.
         s, o = basis_to_horizons(ScoringBasis.NINETY_MINUTES_EXTRA_TIME_PENALTIES)
         assert s == ScoreHorizon.AFTER_EXTRA_TIME_120
-        assert o == OutcomeHorizon.ADVANCEMENT
+        assert o == OutcomeHorizon.AFTER_EXTRA_TIME_120
 
     def test_accepts_raw_string(self):
         assert basis_to_horizons("ninety_minutes")[0] == ScoreHorizon.REGULATION_90

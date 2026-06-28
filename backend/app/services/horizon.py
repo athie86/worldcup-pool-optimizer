@@ -70,14 +70,25 @@ class TerminalStateKind(str, Enum):
 
 
 def basis_to_horizons(scoring_basis: ScoringBasis | str) -> tuple[ScoreHorizon, OutcomeHorizon]:
-    """Map a scoring basis to the (score horizon, outcome horizon) it consumes."""
+    """Map a scoring basis to the (score horizon, outcome horizon) it consumes.
+
+    Result-shaped score components (``correct_outcome`` / ``outcome_team_goals``)
+    are scored on the *on-pitch* result at the score horizon, never on which team
+    advances. A tie settled on penalties is therefore a **draw** for these
+    components — penalty goals never create a winner on the scoreline. Advancement
+    is rewarded exclusively by the ``advance`` / ``penalty_winner`` bonuses, which
+    read the terminal-state fields directly and do not consume the outcome
+    horizon. Scoring a predicted draw as a decisive win (via its penalty pick)
+    would let draws harvest "correct winner" points across regulation-decided
+    non-draw results, systematically over-recommending draw / penalty scorelines.
+    """
     basis = ScoringBasis(scoring_basis)
     if basis == ScoringBasis.NINETY_MINUTES:
         return ScoreHorizon.REGULATION_90, OutcomeHorizon.REGULATION_90
     if basis == ScoringBasis.NINETY_MINUTES_EXTRA_TIME:
         return ScoreHorizon.AFTER_EXTRA_TIME_120, OutcomeHorizon.AFTER_EXTRA_TIME_120
     if basis == ScoringBasis.NINETY_MINUTES_EXTRA_TIME_PENALTIES:
-        return ScoreHorizon.AFTER_EXTRA_TIME_120, OutcomeHorizon.ADVANCEMENT
+        return ScoreHorizon.AFTER_EXTRA_TIME_120, OutcomeHorizon.AFTER_EXTRA_TIME_120
     raise ValueError(f"Unsupported scoring basis: {scoring_basis}")
 
 
