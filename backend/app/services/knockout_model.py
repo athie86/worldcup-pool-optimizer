@@ -55,10 +55,13 @@ class KnockoutExtras:
 # Extra-time lasts 30 minutes; goals arrive at roughly 1/3 the 90-min rate.
 _ET_RATE_FACTOR = 1.0 / 3.0
 
-# Penalty strength bias is clipped near 50/50: real-world data shows shootouts
-# are close to a coin flip regardless of team quality.
-_PEN_CLIP_LOW = 0.35
-_PEN_CLIP_HIGH = 0.65
+# Shootouts are close to a coin flip regardless of team quality, so the goal-rate
+# signal is shrunk hard toward 0.5 and clipped tight. Mirrors the horizon model's
+# infer_penalty_probability fallback (horizon._PEN_FALLBACK_TILT / _PEN_FALLBACK_CLIP)
+# so the two knockout paths can never disagree on shootout odds.
+_PEN_TILT = 0.35
+_PEN_CLIP_LOW = 0.40
+_PEN_CLIP_HIGH = 0.60
 
 # ET goal grid size (0..N per team). 4 is generous — ET rarely exceeds 1 goal.
 _ET_MAX = 4
@@ -101,13 +104,11 @@ def compute_knockout_extras(
         p_away_et = float(np.triu(et_grid, 1).sum())    # away_et > home_et
         p_still_draw_et = float(np.trace(et_grid))       # level after ET
 
-    # Penalties: slight strength bias derived from goal-rate ratio, clipped near 50/50.
+    # Penalties: a faint goal-rate tilt shrunk toward 0.5 and clipped near 50/50.
     total_lam = float(lambda_home) + float(lambda_away)
-    if total_lam > 0:
-        raw_home_pen = float(lambda_home) / total_lam
-    else:
-        raw_home_pen = 0.5
-    p_home_pen = float(np.clip(raw_home_pen, _PEN_CLIP_LOW, _PEN_CLIP_HIGH))
+    raw_home_pen = (float(lambda_home) / total_lam) if total_lam > 0 else 0.5
+    tilted = 0.5 + _PEN_TILT * (raw_home_pen - 0.5)
+    p_home_pen = float(np.clip(tilted, _PEN_CLIP_LOW, _PEN_CLIP_HIGH))
 
     return KnockoutExtras(
         p_draw_90=p_draw_90,
